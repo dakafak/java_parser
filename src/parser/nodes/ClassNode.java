@@ -8,6 +8,16 @@ public class ClassNode extends Node {
     String extendsForClass;
     String[] implementsForClass;
 
+    Node[] nodesInsideClass;
+
+    public Node[] getNodesInsideClass() {
+        return nodesInsideClass;
+    }
+
+    public void setNodesInsideClass(Node[] nodesInsideClass) {
+        this.nodesInsideClass = nodesInsideClass;
+    }
+
     public String getExtendsForClass() {
         return extendsForClass;
     }
