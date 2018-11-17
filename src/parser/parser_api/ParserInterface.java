@@ -74,14 +74,20 @@ public class ParserInterface {
 		return allChildFiles;
 	}
 
-	Pattern classRegex = Pattern.compile("(package.*?;)?(import.*?;)*(((public|private|static)*?\\s)class(.+?\\s))\\{.*\\}");//TODO update this to handle extends and implements
+	Pattern classRegex = Pattern.compile("(package.*?;)?(import.*?;)*((public|private|static)*?\\s)(class\\s([a-zA-Z0-9]+))(\\sextends\\s([a-zA-Z0-9]+))?(\\simplements\\s([a-zA-Z0-9,\\s]+))?\\s*\\{.*\\}");
+	//TODO add unit test for this
 	private Node tryToBuildNodeFromCurrentString(String currentString){
 		Matcher matcher = classRegex.matcher(currentString);
-		if(matcher.matches()){
+
+		if(matcher.matches() && matcher.groupCount() >= 6 && matcher.group(6) != null){
 			ClassNode classNode = new ClassNode();
 			classNode.setClassName(matcher.group(6));
-//			classNode.setExtendsForClass();
-//			classNode.setImplementsForClass();
+			if(matcher.groupCount() >= 8 && matcher.group(8) != null) {
+				classNode.setExtendsForClass(matcher.group(8));
+			}
+			if(matcher.groupCount() >= 10 && matcher.group(10) != null) {
+				classNode.setImplementsForClass(matcher.group(10).replaceAll("\\s", "").split(","));
+			}
 			return classNode;
 		}
 

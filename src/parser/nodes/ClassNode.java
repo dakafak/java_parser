@@ -2,13 +2,11 @@ package parser.nodes;
 
 import parser.nodes.type.NodeType;
 
-import java.util.List;
-
 public class ClassNode extends Node {
 
     String className;
     String extendsForClass;
-    List<String> implementsForClass;
+    String[] implementsForClass;
 
     public String getExtendsForClass() {
         return extendsForClass;
@@ -18,11 +16,11 @@ public class ClassNode extends Node {
         this.extendsForClass = extendsForClass;
     }
 
-    public List<String> getImplementsForClass() {
+    public String[] getImplementsForClass() {
         return implementsForClass;
     }
 
-    public void setImplementsForClass(List<String> implementsForClass) {
+    public void setImplementsForClass(String[] implementsForClass) {
         this.implementsForClass = implementsForClass;
     }
 
