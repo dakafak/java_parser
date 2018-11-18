@@ -1,9 +1,10 @@
-package parser.parser_api;
+package main.parser.parser_api;
 
-import parser.nodes.ClassNode;
-import parser.nodes.Node;
-import parser.nodes.ProjectNode;
-import parser.nodes.type.NodeType;
+import main.parser.nodes.ClassNode;
+import main.parser.nodes.Node;
+import main.parser.nodes.ProjectNode;
+import main.parser.nodes.SingleLineCommentNode;
+import main.parser.nodes.type.NodeType;
 
 import java.io.*;
 import java.util.ArrayList;
@@ -74,9 +75,12 @@ public class ParserInterface {
 		return allChildFiles;
 	}
 
-	Pattern classRegex = Pattern.compile("(package.*?;)?(import.*?;)*((public|private|static)*?\\s)(class\\s([a-zA-Z0-9]+))(\\sextends\\s([a-zA-Z0-9]+))?(\\simplements\\s([a-zA-Z0-9,\\s]+))?\\s*\\{(.*)\\}");
 	//TODO add unit test for this
-	private Node tryToBuildNodeFromCurrentString(String currentString){
+	//TODO move parsing to new class
+
+	Pattern classRegex = Pattern.compile("(package.*?;)?(import.*?;)*((public|private|static)*?\\s)(class\\s([a-zA-Z0-9]+))(\\sextends\\s([a-zA-Z0-9]+))?(\\simplements\\s([a-zA-Z0-9,\\s]+))?\\s*\\{(.*)\\}");
+
+	protected Node tryToBuildNodeFromCurrentString(String currentString){
 		Matcher matcher = classRegex.matcher(currentString);
 
 		if(matcher.matches() && matcher.groupCount() >= 6 && matcher.group(6) != null){
@@ -90,8 +94,25 @@ public class ParserInterface {
 			}
 			if(matcher.groupCount() >= 11 && matcher.group(11) != null) {
 				String remainingString = matcher.group(11);//TODO need to reformat this to return this group so that this can be parsed after the class core
+				addInnerClassNodesToClass(classNode, remainingString);
 			}
 			return classNode;
+		}
+
+		return null;
+	}
+
+	private void addInnerClassNodesToClass(ClassNode classNode, String remainingStringToParse){
+
+	}
+
+	Pattern singleLineCommentRegex = Pattern.compile("\\/\\/.*");
+	public SingleLineCommentNode parseSingleLineCommentNode(String stringToParse){
+		Matcher singleLineCommentMatcher = singleLineCommentRegex.matcher(stringToParse);
+
+		if(singleLineCommentMatcher.matches()){
+			SingleLineCommentNode singleLineCommentNode = new SingleLineCommentNode();
+			return singleLineCommentNode;
 		}
 
 		return null;

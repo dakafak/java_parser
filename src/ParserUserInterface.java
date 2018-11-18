@@ -1,5 +1,5 @@
-import parser.nodes.ProjectNode;
-import parser.parser_api.ParserInterface;
+import main.parser.nodes.ProjectNode;
+import main.parser.parser_api.ParserInterface;
 
 import java.io.File;
 

@@ -1,6 +1,6 @@
-package parser.nodes;
+package main.parser.nodes;
 
-import parser.nodes.type.NodeType;
+import main.parser.nodes.type.NodeType;
 
 public class ClassNode extends Node {
 
