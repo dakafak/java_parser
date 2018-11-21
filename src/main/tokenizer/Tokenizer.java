@@ -84,14 +84,10 @@ public class Tokenizer {
 
 		// Create Matcher
 		Matcher tokenMatcher = tokenType.getRegex().matcher(currentString);
-
-		System.out.println("trying to match: " + currentString);
 		if(tokenMatcher.lookingAt()){
 			foundATokenMatch = true;
 			String matchedPiece = tokenMatcher.group(0);
-			System.out.println("matched piece: " + matchedPiece);
 			allTokenTypes.add(new Token(tokenType, matchedPiece));
-
 			return currentString.replaceFirst(matchedPiece, "");
 		}
 
