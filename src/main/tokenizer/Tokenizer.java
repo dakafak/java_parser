@@ -35,7 +35,7 @@ public class Tokenizer {
 
 			String readLine;//TODO try changing this to be tokenize one line at a time from the file
 			while((readLine = br.readLine()) != null){
-				totalReadString += readLine.trim();
+				totalReadString += readLine.trim() + '\n';
 			}
 
 			return tryTokenizerForCurrentString(totalReadString);
@@ -50,7 +50,7 @@ public class Tokenizer {
 		return new ArrayList<>();
 	}
 
-	Pattern leadingWhitespaceRegex = Pattern.compile("^\\s+");
+	Pattern leadingWhitespaceOrNewLineRegex = Pattern.compile("(\\s|\\\\n)+");
 
 	boolean foundATokenMatch = false;
 	public List<Token> tryTokenizerForCurrentString(String currentString){
@@ -59,6 +59,9 @@ public class Tokenizer {
 		foundATokenMatch = false;
 		while(!currentString.isEmpty()){
 			// Test regexes
+			currentString = tryMatchingTokenWithString(MULTI_LINE_COMMENT, currentString, allTokenTypes);
+			currentString = tryMatchingTokenWithString(SINGLE_LINE_COMMENT, currentString, allTokenTypes);
+
 			currentString = tryMatchingTokenWithString(TYPE, currentString, allTokenTypes);
 			currentString = tryMatchingTokenWithString(OBJECT_OR_VARIABLE_NAME, currentString, allTokenTypes);
 			currentString = tryMatchingTokenWithString(EQUALS, currentString, allTokenTypes);
@@ -67,7 +70,7 @@ public class Tokenizer {
 
 			// Check if error and should stop
 			if(!foundATokenMatch && !currentString.isEmpty()){
-				System.out.println("Coulld not find a match for the remaining:");
+				System.out.println("Could not find a match for the remaining:");
 				System.out.println(currentString);
 				break;
 			}
@@ -80,15 +83,18 @@ public class Tokenizer {
 
 	private String tryMatchingTokenWithString(TokenType tokenType, String currentString, List<Token> allTokenTypes){
 		// Replace leading whitespace
-		currentString = currentString.replaceFirst("^\\s+", "");
+		currentString = currentString.replaceFirst(leadingWhitespaceOrNewLineRegex.pattern(), "");
+//		System.out.println("trying to match: ");
+//		System.out.println(currentString);
 
 		// Create Matcher
 		Matcher tokenMatcher = tokenType.getRegex().matcher(currentString);
 		if(tokenMatcher.lookingAt()){
 			foundATokenMatch = true;
 			String matchedPiece = tokenMatcher.group(0);
+//			System.out.println("found a match: " + matchedPiece);
 			allTokenTypes.add(new Token(tokenType, matchedPiece));
-			return currentString.replaceFirst(matchedPiece, "");
+			return tokenMatcher.replaceFirst("");
 		}
 
 		return currentString;

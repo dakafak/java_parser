@@ -1,0 +1,2143 @@
+/*
+ * To change this license header, choose License Headers in Project Properties.
+ * To change this template file, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package Game;
+
+import Building.Entity;
+import Building.Roads;
+import Fighting.Effect;
+import Fighting.Projectile;
+import Story.Quest;
+import Story.QuestManager;
+import Tools.ArrayList2D;
+import static Tools.EMath.fullIntersects;
+import Tools.GType;
+import static Tools.GType.CHUNK_SIZE;
+import static Tools.GType.ENTITY_GOLD;
+import static Tools.GType.ENTITY_HEALTH;
+import static Tools.GType.ENTITY_HEALTHPOT;
+import static Tools.GType.ENTITY_ROCK;
+import static Tools.GType.ENTITY_WOOD;
+import static Tools.GType.GAME_CONNECTEDNESS;
+import static Tools.GType.IMAGE_TILE_SIZE;
+import static Tools.GType.PP_NONE;
+import static Tools.GType.SPECIAL_SMITH;
+import static Tools.GType.SPECIAL_SPAWN;
+import static Tools.GType.STANDARD_SCALE_DRAW_HEIGHT;
+import static Tools.GType.STANDARD_SCALE_DRAW_WIDTH;
+import static Tools.GType.TEAM_PLAYER;
+import static Tools.GType.chunkHeightDistance;
+import static Tools.GType.chunkWidthDistance;
+import static Tools.Tool.WRITE;
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.FontFormatException;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.GraphicsEnvironment;
+import java.awt.IllegalComponentStateException;
+import java.awt.Image;
+import java.awt.MouseInfo;
+import java.awt.Point;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
+import java.awt.geom.AffineTransform;
+import java.awt.image.AffineTransformOp;
+import java.awt.image.BufferedImage;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import javax.swing.ImageIcon;
+import javax.swing.JFrame;
+import javax.swing.JPanel;
+import javax.swing.Timer;
+
+/**
+ *
+ * @author Dakafak
+ */
+public class Game extends JPanel implements ActionListener, Serializable{
+	private static boolean paused;
+	private boolean displayingMap;
+	private boolean showDeveloperStats;
+
+	public String saveGameName;
+
+	boolean closeDown, gameOver;
+	Thread graphicsThread, enemyThread, chunkThread;
+	Timer update;
+
+	ArrayList2D map;
+	Player player;
+
+	float scale, screenWidth, screenHeight;
+	//double offsetX, offsetY;
+	int chunkSize;
+
+	//some biome list stuff temp
+	ArrayList<Biome> biomeList;
+	//----------
+
+	//for graphics stuff
+	Font defaultFont;
+	Font defaultFont24;
+	Font defaultFont48;
+
+	/*
+		For roads and cities
+	*/
+	Roads roadManager;
+	ArrayList<Town> towns;
+
+	//for quests and story
+	QuestManager quests;
+
+	public Game(Player player, ArrayList2D map, ArrayList<Town> towns, int width, int height, JFrame frame, float scale, String saveGameName){
+		displayingMap = false;
+		paused = false;
+
+		this.player = player;
+		this.map = map;
+		this.scale = scale;
+		this.saveGameName = saveGameName;
+		this.towns = towns;
+		super.setBackground(Color.BLACK);
+
+		roadManager = new Roads();
+
+//		if(quests != null){
+//			this.quests = quests;
+//		}
+//		else{
+			this.quests = new QuestManager(player.currentQuests);
+//		}
+
+		lastUpdate = System.nanoTime();
+		currentTime = System.nanoTime();
+		time = 0;
+
+		setupFonts();
+		setupImageMaps();
+		setupEvents(frame);
+		setupBiomes();
+		setupEffects();
+		setupEntities();
+		setupGame(width, height);
+		setupCharLevel();
+		//fixPlayerChunkEnemies();
+		setupMinimapVariables();
+		//setupCrafting();
+
+		//setPlayerCamp();
+
+		playerProjectiles = new ArrayList<>();
+		enemyProjectiles = new ArrayList<>();
+		setupProjectileImages();//clear enemies from inital player spawn so enemies don't spawn on player
+
+		//player.setupImages(scale, this);
+		setupBufferedImages();
+		setupCharacterImages(scale, this);
+		//setupInventory();
+//		testPath();
+	}
+
+	//for character images
+	//<editor-fold defaultstate="collapsed">
+		Image[] characterImages;
+		BufferedImage[] characterMovement;
+
+		//for setting up character images
+		//<editor-fold defaultstate="collapsed">
+		public void setupCharacterImages(double scale, JPanel panel){
+			characterImages = new Image[] {(new ImageIcon("images/character/movement/move_01.png")).getImage(),
+									(new ImageIcon("images/character/movement/move_02.png")).getImage(),
+									(new ImageIcon("images/character/movement/move_03.png")).getImage(),
+									(new ImageIcon("images/character/movement/attack_01.png")).getImage(),
+									(new ImageIcon("images/character/movement/attack_02.png")).getImage()
+										};
+			characterMovement = new BufferedImage[characterImages.length];
+			for(int i=0; i<characterImages.length; i++){
+				characterMovement[i] = new BufferedImage((int)(scale * 2), (int)(scale * 2), BufferedImage.TYPE_INT_ARGB);
+				Graphics2D g2d = characterMovement[i].createGraphics();
+				g2d.drawImage(characterImages[i], (int) (scale/2), (int) (scale/2), (int) (scale * 1), (int) (scale * 1), panel);
+			}
+		}
+		//</editor-fold>
+	//</editor-fold>
+
+//	public void saveThatShit(){
+//		WRITE("----------SAVING with save game name of: " + saveGameName);
+//		File saveFile = new File("saves/" + saveGameName + "/" + saveGameName + ".map");
+//		if(!saveFile.exists()){
+//			try {
+//				saveFile.createNewFile();
+//			} catch (IOException ex) {
+//				Logger.getLogger(Game.class.getName()).log(Level.SEVERE, null, ex);
+//			}
+//		}
+//
+//		try {
+//			FileOutputStream fileOut = new FileOutputStream(saveFile);
+//			ObjectOutputStream objectOut = new ObjectOutputStream(fileOut);
+//			objectOut.writeObject(map);
+//			objectOut.flush();
+//			objectOut.close();
+//			fileOut.close();
+//		} catch (IOException ex) {
+//			Logger.getLogger(MainWindow.class.getName()).log(Level.SEVERE, null, ex);
+//		}
+//
+//		File questsFile = new File("saves/" + saveGameName + "/" + saveGameName + ".quests");
+//		if(!questsFile.exists()){
+//			try {
+//				questsFile.createNewFile();
+//			} catch (IOException ex) {
+//				Logger.getLogger(Game.class.getName()).log(Level.SEVERE, null, ex);
+//			}
+//		}
+//		try {
+//			FileOutputStream fileOut = new FileOutputStream(questsFile);
+//			ObjectOutputStream objectOut = new ObjectOutputStream(fileOut);
+//			objectOut.writeObject(quests);
+//			objectOut.flush();
+//			objectOut.close();
+//			fileOut.close();
+//		} catch (IOException ex) {
+//			Logger.getLogger(MainWindow.class.getName()).log(Level.SEVERE, null, ex);
+//		}
+//
+//		File playerFile = new File("saves/" + saveGameName + "/" + saveGameName + ".player");
+//		if(!playerFile.exists()){
+//			try {
+//				playerFile.createNewFile();
+//			} catch (IOException ex) {
+//				Logger.getLogger(Game.class.getName()).log(Level.SEVERE, null, ex);
+//			}
+//		}
+//		try {
+//			FileOutputStream fileOut = new FileOutputStream(playerFile);
+//			ObjectOutputStream objectOut = new ObjectOutputStream(fileOut);
+//			objectOut.writeObject(player);
+//			objectOut.flush();
+//			objectOut.close();
+//			fileOut.close();
+//		} catch (IOException ex) {
+//			Logger.getLogger(MainWindow.class.getName()).log(Level.SEVERE, null, ex);
+//		}
+//	}
+
+	public static int pause(){
+		if(!paused){
+			paused = true;
+			return 1;
+		}
+		return 0;
+	}
+
+	public static int unpause(){
+		if(paused){
+			paused = false;
+			return 1;
+		}
+		return 0;
+	}
+
+	private void setupFonts(){
+		try {
+			defaultFont = Font.createFont(Font.TRUETYPE_FONT, new File("fonts/Cornerstone.ttf"));
+			GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+			ge.registerFont(defaultFont);
+			defaultFont24 = defaultFont.deriveFont(24f);
+			defaultFont48 = defaultFont.deriveFont(36f);
+	   } catch (IOException|FontFormatException e) {
+			//Handle exception
+			WRITE("FONT ERROR - Was not able to load custom font");
+			defaultFont = new Font("Monospaced", 0, 24);
+		}
+	}
+
+	private void setupMinimapVariables(){
+		minimapWidth = minimapWidth * screenWidth;
+		minimapHeight = minimapHeight * screenWidth;
+	}
+
+//	private void setPlayerCamp(){//setup story mode beginning
+//		//fix player location
+//		if(map.getFromCoord(0, 0) == null){
+//			WRITE("--------------The map is not generated yet------------------");
+//
+//			//generate new chunk
+//			Chunk newChunk = new Chunk();
+//			newChunk.generateChunk(map.toArray(), biomeList, roadManager, map.getIndexX(0), map.getIndexY(0), 0, 0, GAME_CONNECTEDNESS);
+//			roadManager.setCampOnChunk(newChunk.grid, 0, 0);
+//			newChunk.completeSetup(scale, time);
+//			newChunk.initialSpawn(scale, time);
+//
+//			//newChunk.grid[0][0] = null;
+//			for(int j=0; j<newChunk.grid.length; j++){
+//				for(int i=0; i<newChunk.grid[0].length; i++){
+//					newChunk.grid[j][i].decor = -1;
+//				}
+//			}
+////			//find player spawn location
+////			boolean done = false;
+////			for(int j=0; j<newChunk.grid.length; j++){
+////				for(int i=0; i<newChunk.grid[0].length; i++){
+////					if(newChunk.grid[j][i].physicalProperties == PP_NONE){
+////						player.x = i;
+////						player.y = j;
+////						done = true;
+////						break;
+////					}
+////				}
+////				if(done){
+////					break;
+////				}
+////			}
+//
+//			map.set(newChunk, 0, 0);
+//		}
+//	}
+
+//	private void fixPlayerChunkEnemies(){
+//		for(int i=-1; i<=1; i++){
+//			for(int j=-1; j<=1; j++){
+//				Chunk currentChunk = map.getFromCoord(getMapChunkX() + i, getMapChunkY() + j);
+//				if(currentChunk != null){
+//					if(currentChunk.units != null){
+//						currentChunk.units.clear();
+//					}
+//				}
+//			}
+//		}
+//	}
+
+	public void saveGame(){
+		//------------- for quests ------------------------
+		String currentQuests = "";
+		for(int i=0; i<quests.getNumberOfCurrentQuests(); i++){
+			currentQuests += quests.getCurrentQuest(i).id + ",";
+		}
+		if(currentQuests.equals("")){
+			currentQuests = "" + quests.currentQuest;
+		}
+		//-------------for town saving test
+		//Town town1 = new Town("dood1:1,2.1,1");
+		//Town town2 = new Town("dood2:3,1.2,1.1,1");
+
+		//towns.add(town1);
+		//towns.add(town2);
+
+		//----------- for town saving----------------
+		String townString = "";
+		for(int i=0; i<towns.size(); i++){
+			townString += towns.get(i);
+			if(i != towns.size() - 1){
+				townString += "|";
+			}
+		}
+
+		//--------------- save game---------------------
+		Tools.FileManager.saveGame(saveGameName, map, player, currentQuests, townString);
+	}
+
+	public void shutDown(){
+		//WRITE("trying to shut down");
+		closeDown = true;
+		gameOver = true;
+		try {
+			enemyThread.join(1000);
+			chunkThread.join(1000);
+			graphicsThread.join(1000);
+		} catch (InterruptedException ex) {
+			WRITE("was not able to join thread");
+		}
+	}
+
+	//image information for tiles
+	//<editor-fold defaultstate="collapsed">
+	private void setupImageMaps(){
+		BufferedReader br = null, br2 = null, br3 = null;
+		try {
+			floorImages = new HashMap<>();
+			decorImages = new HashMap<>();
+			entImages = new HashMap<>();
+			eid = new HashMap<>();
+
+			//floor
+			//<editor-fold defaultstate="collapsed">
+			br = new BufferedReader(new FileReader(new File("images/tiles/floor.info")));
+			String readLine = "";
+			while( (readLine = br.readLine()) != null ){
+				if(readLine.startsWith("//")){
+					continue;
+				}
+				String[] splitLine = readLine.split(":");
+				if(splitLine.length == 2){
+					int id = Tools.Parse.getIntParse(splitLine[0]);
+					Image pairedImage = (new ImageIcon("images/tiles/" + splitLine[1])).getImage();
+					floorImages.put(id, pairedImage);
+					WRITE("setup new floor tile with: " + splitLine[1] + " to id " + id);
+				}
+			}
+			//</editor-fold>
+
+			//decor
+			//<editor-fold defaultstate="collapsed">
+			br2 = new BufferedReader(new FileReader(new File("images/tiles/decor.info")));
+			String readLine2 = "";
+			while( (readLine2 = br2.readLine()) != null ){
+				if(readLine2.startsWith("//")){
+					continue;
+				}
+				String[] splitLine = readLine2.split(":");
+				if(splitLine.length == 2){
+					int id = Tools.Parse.getIntParse(splitLine[0]);
+					Image pairedImage = (new ImageIcon("images/tiles/" + splitLine[1])).getImage();
+					decorImages.put(id, pairedImage);
+					WRITE("setup new floor tile with: " + splitLine[1] + " to id " + id);
+				}
+			}
+			//</editor-fold>
+
+			//entities
+			//<editor-fold defaultstate="collapsed">
+			br3 = new BufferedReader(new FileReader(new File("images/entities/ent.info")));
+			String readLine3 = "";
+			while( (readLine3 = br3.readLine()) != null){
+				if(readLine3.startsWith("//")){
+					continue;
+				}
+
+				String[] splitLine = readLine3.split(":");
+				if(splitLine.length == 3){
+					int id = Tools.Parse.getIntParse(splitLine[0]);
+					Image pairedImage = (new ImageIcon("images/entities/" + splitLine[1])).getImage();
+					int entityID = Tools.Parse.getIntParse(splitLine[2]);
+
+					entImages.put(id, pairedImage);
+					this.eid.put(id, entityID);
+
+					WRITE("setup new entity connecting: " + splitLine[1] + " to id " + id);
+				}
+			}
+			//</editor-fold>
+
+		} catch (FileNotFoundException ex) {
+			WRITE("ERROR - could not create buffered reader for image map setup");
+		} catch (IOException ex) {
+			WRITE("ERROR - Could not read line for image map setup");
+		} finally {
+			try {
+				br.close();
+				br2.close();
+			} catch (IOException ex) {
+				Logger.getLogger(Game.class.getName()).log(Level.SEVERE, null, ex);
+			}
+		}
+	}
+	//</editor-fold>
+
+	/*
+		setting up images for projectiles
+	*/
+//	BufferedImage[][] daggerBufferedImages, axeBufferedImages;
+	Image[] daggerImages, axeImages;
+
+	Image[] meleeImages, rangedImages, vendorUnitImages, questUnitImages, civImages;
+	BufferedImage[][] meleeMovement, rangedMovement, vendorUnitMovement, questUnitMovement, civMovement;
+	//Image[][] meleeEnemy, rangedEnemy;
+	//<editor-fold defaultstate="collapsed">
+		private void setupBufferedImages(){
+			//projectiles
+			daggerImages = new Image[] {(new ImageIcon("images/enemy/weapon/dagger1.png")).getImage(),
+										(new ImageIcon("images/enemy/weapon/dagger2.png")).getImage(),
+										(new ImageIcon("images/enemy/weapon/dagger3.png")).getImage(),
+										(new ImageIcon("images/enemy/weapon/dagger4.png")).getImage()
+									};
+			axeImages = new Image[] {	(new ImageIcon("images/character/weapon/ammo1.png")).getImage(),
+										(new ImageIcon("images/character/weapon/ammo2.png")).getImage(),
+										(new ImageIcon("images/character/weapon/ammo3.png")).getImage(),
+										(new ImageIcon("images/character/weapon/ammo4.png")).getImage()
+									};
+
+			//enemies
+			setupEnemyImages();
+			//load sprite sheet for both melee and ranged and create a image array/2darray that contains all images
+		}
+
+		//code for enemy images
+		//<editor-fold defaultstate="collapsed">
+		public void setupEnemyImages(){
+			//do something with type for each enemy images
+			//-------------------- for regular images----------------------------------
+			meleeImages = new Image[] {	(new ImageIcon("images/enemy/movement/melee/melee1.png")).getImage(),
+									(new ImageIcon("images/enemy/movement/melee/melee2.png")).getImage(),
+									(new ImageIcon("images/enemy/movement/melee/melee3.png")).getImage(),
+									(new ImageIcon("images/enemy/movement/melee/melee4.png")).getImage(),
+									(new ImageIcon("images/enemy/movement/melee/attack1.png")).getImage(),
+									(new ImageIcon("images/enemy/movement/melee/attack2.png")).getImage()
+										};
+			rangedImages = new Image[] {	(new ImageIcon("images/enemy/movement/ranged/ranged1.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/ranged/ranged2.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/ranged/ranged3.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/ranged/ranged4.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/ranged/attack1.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/ranged/attack2.png")).getImage()
+										};
+
+			vendorUnitImages = new Image[] {	(new ImageIcon("images/enemy/movement/vendor/temp.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/vendor/temp.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/vendor/temp.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/vendor/temp.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/vendor/temp.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/vendor/temp.png")).getImage()
+										};
+
+			questUnitImages = new Image[] {	(new ImageIcon("images/enemy/movement/quest/temp.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/quest/temp.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/quest/temp.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/quest/temp.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/quest/temp.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/quest/temp.png")).getImage()
+										};
+			civImages = new Image[] {	(new ImageIcon("images/enemy/movement/civ/temp.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/civ/temp.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/civ/temp.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/civ/temp.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/civ/temp.png")).getImage(),
+										(new ImageIcon("images/enemy/movement/civ/temp.png")).getImage()
+										};
+
+
+			//---------------- for movement images---------------------------------------
+			if(meleeImages != null){
+				meleeMovement = new BufferedImage[8][meleeImages.length];
+				for(int i=0; i<meleeImages.length; i++){
+					meleeMovement[0][i] = getRotatedBI(meleeImages, i, scale, null, 0);
+					meleeMovement[1][i] = getRotatedBI(meleeImages, i, scale, null, 45);
+					meleeMovement[2][i] = getRotatedBI(meleeImages, i, scale, null, 90);
+					meleeMovement[3][i] = getRotatedBI(meleeImages, i, scale, null, 135);
+					meleeMovement[4][i] = getRotatedBI(meleeImages, i, scale, null, 180);
+					meleeMovement[5][i] = getRotatedBI(meleeImages, i, scale, null, 225);
+					meleeMovement[6][i] = getRotatedBI(meleeImages, i, scale, null, 270);
+					meleeMovement[7][i] = getRotatedBI(meleeImages, i, scale, null, 315);
+				}
+			}
+
+			if(rangedImages != null){
+				rangedMovement = new BufferedImage[8][rangedImages.length];
+				for(int i=0; i<rangedImages.length; i++){
+					rangedMovement[0][i] = getRotatedBI(rangedImages, i, scale, null, 0);
+					rangedMovement[1][i] = getRotatedBI(rangedImages, i, scale, null, 45);
+					rangedMovement[2][i] = getRotatedBI(rangedImages, i, scale, null, 90);
+					rangedMovement[3][i] = getRotatedBI(rangedImages, i, scale, null, 135);
+					rangedMovement[4][i] = getRotatedBI(rangedImages, i, scale, null, 180);
+					rangedMovement[5][i] = getRotatedBI(rangedImages, i, scale, null, 225);
+					rangedMovement[6][i] = getRotatedBI(rangedImages, i, scale, null, 270);
+					rangedMovement[7][i] = getRotatedBI(rangedImages, i, scale, null, 315);
+				}
+			}
+
+			if(vendorUnitImages != null){
+				vendorUnitMovement = new BufferedImage[8][vendorUnitImages.length];
+				for(int i=0; i<vendorUnitImages.length; i++){
+					vendorUnitMovement[0][i] = getRotatedBI(vendorUnitImages, i, scale, null, 0);
+					vendorUnitMovement[1][i] = getRotatedBI(vendorUnitImages, i, scale, null, 45);
+					vendorUnitMovement[2][i] = getRotatedBI(vendorUnitImages, i, scale, null, 90);
+					vendorUnitMovement[3][i] = getRotatedBI(vendorUnitImages, i, scale, null, 135);
+					vendorUnitMovement[4][i] = getRotatedBI(vendorUnitImages, i, scale, null, 180);
+					vendorUnitMovement[5][i] = getRotatedBI(vendorUnitImages, i, scale, null, 225);
+					vendorUnitMovement[6][i] = getRotatedBI(vendorUnitImages, i, scale, null, 270);
+					vendorUnitMovement[7][i] = getRotatedBI(vendorUnitImages, i, scale, null, 315);
+				}
+			}
+
+			if(questUnitImages != null){
+				questUnitMovement = new BufferedImage[8][questUnitImages.length];
+				for(int i=0; i<questUnitImages.length; i++){
+					questUnitMovement[0][i] = getRotatedBI(questUnitImages, i, scale, null, 0);
+					questUnitMovement[1][i] = getRotatedBI(questUnitImages, i, scale, null, 45);
+					questUnitMovement[2][i] = getRotatedBI(questUnitImages, i, scale, null, 90);
+					questUnitMovement[3][i] = getRotatedBI(questUnitImages, i, scale, null, 135);
+					questUnitMovement[4][i] = getRotatedBI(questUnitImages, i, scale, null, 180);
+					questUnitMovement[5][i] = getRotatedBI(questUnitImages, i, scale, null, 225);
+					questUnitMovement[6][i] = getRotatedBI(questUnitImages, i, scale, null, 270);
+					questUnitMovement[7][i] = getRotatedBI(questUnitImages, i, scale, null, 315);
+				}
+			}
+
+			if(civImages != null){
+				civMovement = new BufferedImage[8][civImages.length];
+				for(int i=0; i<civImages.length; i++){
+					civMovement[0][i] = getRotatedBI(civImages, i, scale, null, 0);
+					civMovement[1][i] = getRotatedBI(civImages, i, scale, null, 45);
+					civMovement[2][i] = getRotatedBI(civImages, i, scale, null, 90);
+					civMovement[3][i] = getRotatedBI(civImages, i, scale, null, 135);
+					civMovement[4][i] = getRotatedBI(civImages, i, scale, null, 180);
+					civMovement[5][i] = getRotatedBI(civImages, i, scale, null, 225);
+					civMovement[6][i] = getRotatedBI(civImages, i, scale, null, 270);
+					civMovement[7][i] = getRotatedBI(civImages, i, scale, null, 315);
+				}
+			}
+		}
+		private BufferedImage getRotatedBI(Image[] images, int index, double scale, JPanel panel, double angle){
+			BufferedImage newImage = new BufferedImage((int)(scale * 2), (int)(scale * 2), BufferedImage.TYPE_INT_ARGB);
+			Graphics2D g2d = newImage.createGraphics();
+			AffineTransform at = AffineTransform.getRotateInstance(Math.toRadians(angle + 90), (scale), (scale));
+			AffineTransformOp op = new AffineTransformOp(at, AffineTransformOp.TYPE_BILINEAR);
+
+			g2d.drawImage(images[index], (int) (scale/2), (int) (scale/2), (int) (scale * 1), (int) (scale * 1), panel);
+
+			BufferedImage rotatedImage = new BufferedImage((int)(scale * 2), (int)(scale * 2), BufferedImage.TYPE_INT_ARGB);
+			Graphics2D g = rotatedImage.createGraphics();
+			g.drawImage(op.filter(newImage, null), 0, 0, panel);
+
+			return rotatedImage;
+		}
+		//</editor-fold>
+
+		//extra code commented out
+		//<editor-fold defaultstate="collapsed">
+//		public BufferedImage[][] setBufferedImage(Image[] images, JPanel panel, float scale){
+//			if(images == null){
+//				return null;
+//			}
+//
+//			BufferedImage[][] theBImages = new BufferedImage[8][images.length];;
+//
+//			for(int i=0; i<images.length; i++){
+//				theBImages[0][i] = getRotatedBI(images, i, scale, null, 0);
+//				theBImages[1][i] = getRotatedBI(images, i, scale, null, 45);
+//				theBImages[2][i] = getRotatedBI(images, i, scale, null, 90);
+//				theBImages[3][i] = getRotatedBI(images, i, scale, null, 135);
+//				theBImages[4][i] = getRotatedBI(images, i, scale, null, 180);
+//				theBImages[5][i] = getRotatedBI(images, i, scale, null, 225);
+//				theBImages[6][i] = getRotatedBI(images, i, scale, null, 270);
+//				theBImages[7][i] = getRotatedBI(images, i, scale, null, 315);
+//			}
+//
+//			return theBImages;
+//		}
+//		private BufferedImage getRotatedBI(Image[] images, int index, double scale, JPanel panel, double angle){
+//			BufferedImage newImage = new BufferedImage((int)(scale * 2), (int)(scale * 2), BufferedImage.TYPE_INT_ARGB);
+//			Graphics2D g2d = newImage.createGraphics();
+//			AffineTransform at = AffineTransform.getRotateInstance(Math.toRadians(angle + 90), (scale), (scale));
+//			AffineTransformOp op = new AffineTransformOp(at, AffineTransformOp.TYPE_BILINEAR);
+//
+//			g2d.drawImage(images[index], (int) (scale/2), (int) (scale/2), (int) (scale * 1), (int) (scale * 1), panel);
+//
+//			BufferedImage rotatedImage = new BufferedImage((int)(scale * 2), (int)(scale * 2), BufferedImage.TYPE_INT_ARGB);
+//			Graphics2D g = rotatedImage.createGraphics();
+//			g.drawImage(op.filter(newImage, null), 0, 0, panel);
+//
+//			return rotatedImage;
+//		}
+
+//		private BufferedImage getRotatedBI(Image[] images, int index, double scale, JPanel panel, double angle){
+//			BufferedImage newImage = new BufferedImage((int)(scale * 2), (int)(scale * 2), BufferedImage.TYPE_INT_ARGB);
+//			Graphics2D g2d = newImage.createGraphics();
+//			AffineTransform at = AffineTransform.getRotateInstance((angle), (scale), (scale));
+//			AffineTransformOp op = new AffineTransformOp(at, AffineTransformOp.TYPE_BILINEAR);
+//
+//			g2d.drawImage(images[index], (int) (scale/2), (int) (scale/2), (int) (scale * 1), (int) (scale * 1), panel);
+//
+//			BufferedImage rotatedImage = new BufferedImage((int)(scale * 2), (int)(scale * 2), BufferedImage.TYPE_INT_ARGB);
+//			Graphics2D g = rotatedImage.createGraphics();
+//			g.drawImage(op.filter(newImage, null), 0, 0, panel);
+//
+//			return rotatedImage;
+//		}
+//
+//		public BufferedImage[] getImages(){
+//			return image;
+//		}
+		//</editor-fold>
+	//</editor-fold>
+
+	private void updateGame(){
+		//WRITE("main thread running");
+		if(!paused && !displayingMap){
+			currentUpdateTime = System.nanoTime();
+			updates++;
+			if((currentUpdateTime - lastUPSUpdate) >= 1000000000){
+				ups = updates;
+				lastUPSUpdate = currentUpdateTime;
+				updates = 0;
+			}
+
+			if(!gameOver){
+				player.move(map);
+				quests.checkTravelQuests(player);
+				player.regenStats();
+				player.chargeAttack(time);
+				//tryRepeatingMouse();
+				if(player.isDead()){
+					gameOver = true;
+				}
+			}
+
+			checkEntityPickup();
+			moveProjectiles();
+			checkRemoveProjectiles();
+
+			checkEffectDespawn();
+			checkEntityDespawn();
+		}
+		if(closeDown){
+			update.stop();
+		}
+	}
+
+	private void respawnPlayer(){
+		if(gameOver){
+			player.respawn();
+			gameOver = false;
+		}
+	}
+
+	ArrayList<Projectile> enemyProjectiles;
+	class EnemyManager implements Runnable, ActionListener{
+		Timer enemyTimer;
+		JPanel panel;
+
+		public EnemyManager(JPanel panel){
+			enemyTimer = new Timer(17, this);
+			this.panel = panel;
+		}
+
+		@Override
+		public void run() {
+			enemyTimer.start();
+		}
+
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			currentEUpdateTime = System.nanoTime();
+			eupdates++;
+			if((currentEUpdateTime - lastEPSUpdate) >= 1000000000){
+				eps = eupdates;
+				lastEPSUpdate = currentEUpdateTime;
+				eupdates = 0;
+			}
+			//WRITE("enemy thread running");
+			if(!paused){
+				checkEnemySpawning();
+				moveEnemies();
+				checkEnemyAttackAnimations();
+				moveEnemyProjectiles();
+				checkEnemyProjectileCollisions();
+			}
+			if(closeDown){
+				enemyTimer.stop();
+			}
+		}
+
+		//for enemies
+		//<editor-fold defaultstate="collapsed">
+	//ArrayList<Unit> enemies;
+
+
+	int spawnCheckRange = 5;
+	private void checkEnemySpawning(){
+		for(int i = -spawnCheckRange; i <= spawnCheckRange; i++){
+			for(int j = -spawnCheckRange; j <= spawnCheckRange; j++){
+				Chunk current = map.getFromCoord(getMapChunkX() + i, getMapChunkY() + j);
+				if(current != null){
+					current.checkSpawn(time, scale, panel);
+				}
+			}
+		}
+	}
+
+//	private void prepareEnemies(){
+//		enemies = new ArrayList<>();
+//
+//		Unit newRangedEnemy = new Unit(10, -5, 1, 1, ENEMY_RANGED, 10, 6, 20, 2000, 50);
+//		newRangedEnemy.setSpeed(scale / 10);
+//		enemies.add(newRangedEnemy);
+//
+//		Unit newMeleeEnemy = new Unit(3, -15, 1, 1, ENEMY_MELEE, 5, .5f, 2, 100f, 100);
+//		newMeleeEnemy.setSpeed(scale / 10);
+//		enemies.add(newMeleeEnemy);
+//	}
+
+	private void moveEnemyProjectiles(){
+		for(int i=0; i<enemyProjectiles.size(); i++){
+			enemyProjectiles.get(i).move();
+		}
+	}
+
+	private void checkEnemyProjectileCollisions(){
+		for(int i=0; i<enemyProjectiles.size(); i++){
+			Projectile currentProjectile = enemyProjectiles.get(i);
+			if(currentProjectile.intersects(map, entities, eid, time)){
+				enemyProjectiles.remove(i);
+			}
+			else if(time >= currentProjectile.getSpawnTime() + currentProjectile.getDelay()){
+				enemyProjectiles.remove(i);
+			}
+			else if(fullIntersects(player.getX() + .2, player.getY() + .2, .6, .6,
+					currentProjectile.getX() - currentProjectile.getWidth()/2, currentProjectile.getY() - currentProjectile.getHeight()/2, currentProjectile.getWidth(), currentProjectile.getHeight()) ){
+				int dead = player.damage(currentProjectile.getAttackBonus());
+				enemyProjectiles.remove(i);
+				effects.add(new Effect(player.getX() + .5, player.getY() + .5, .75, .75, GType.EFFECT_BLOOD, time));
+				if(dead == 1){
+					gameOver = true;
+				}
+			}
+		}
+	}
+
+	private void moveEnemies(){
+		for(int i = -chunkWidthDistance(); i <= chunkWidthDistance(); i++){
+			for(int j = -chunkHeightDistance(); j <= chunkHeightDistance(); j++){
+				Chunk current = map.getFromCoord(getMapChunkX() + i, getMapChunkY() + j);
+				if(current != null){
+//					if(!current.initialized){
+//						current.initialSpawn(scale, panel);
+//					}
+					current.moveEnemies(player, time, enemyProjectiles, map, scale, panel, effects);
+				}
+			}
+		}
+	}
+	private void checkEnemyAttackAnimations(){
+		for(int i = -chunkWidthDistance(); i <= chunkWidthDistance(); i++){
+			for(int j = -chunkHeightDistance(); j <= chunkHeightDistance(); j++){
+				Chunk current = map.getFromCoord(getMapChunkX() + i, getMapChunkY() + j);
+				if(current != null){
+					current.checkEnemyAttackAnimations();
+				}
+			}
+		}
+	}
+	//</editor-fold>
+	}
+
+	class ChunkManager implements Runnable, ActionListener{
+		Timer chunkTimer;
+		public ChunkManager(){
+			chunkTimer = new Timer(100, this);
+		}
+
+		@Override
+		public void run() {
+			chunkTimer.start();
+		}
+
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			currentCUpdateTime = System.nanoTime();
+			cupdates++;
+			if((currentCUpdateTime - lastCPSUpdate) >= 1000000000){
+				cps = cupdates;
+				lastCPSUpdate = currentCUpdateTime;
+				cupdates = 0;
+			}
+			//WRITE("chunk manager running");
+			//checkChunkGenerating();
+			otherCheckChunkGeneration();
+			regenTileHealth();
+			if(closeDown){
+				chunkTimer.stop();
+			}
+		}
+
+		private void regenTileHealth(){
+			for(int i = -chunkWidthDistance(); i <= chunkWidthDistance(); i++){
+				for(int j = -chunkHeightDistance(); j <= chunkHeightDistance(); j++){
+					Chunk current = map.getFromCoord(getMapChunkX() + i, getMapChunkY() + j);
+					if(current != null){
+						current.regenBlocks();
+					}
+				}
+			}
+		}
+
+		private void otherCheckChunkGeneration(){
+			int mapX = map.getIndexX(getMapChunkX()), mapY = map.getIndexY(getMapChunkY());
+			//System.out.println("X: " + mapX + " | ");
+
+			boolean skip = false;
+
+			for(int r = 0; r <= GType.getGenerationRange(); r++)
+			{
+				for(int j = -r; j <= r; j++)
+				{
+					for(int i = -r; i <= r; i++)
+					{
+						if(Math.abs(i) + Math.abs(j) == r)
+						{
+							if(isOnMap(mapX + i, mapY + j))
+							{
+								if(map.toArray()[mapY + j][mapX + i] == null)
+								{
+									Chunk newChunk = new Chunk();
+									newChunk.generateChunk(map.toArray(), biomeList, towns, roadManager, mapX + i, mapY + j, map.getCoordX(mapX + i), map.getCoordY(mapY + j), GAME_CONNECTEDNESS);
+									newChunk.completeSetup(scale, time);
+									newChunk.initialSpawn(scale, time);
+									map.set(newChunk, map.getCoordX(mapX + i), map.getCoordY(mapY + j));
+									skip = true;
+									break;
+								}
+							}
+							else
+							{
+								Chunk newChunk = new Chunk();
+
+								map.tryGrow(map.getCoordX(mapX + i), map.getCoordY(mapY + j));
+								mapX = map.getIndexX(getMapChunkX());
+								mapY = map.getIndexY(getMapChunkY());
+
+								newChunk.generateChunk(map.toArray(), biomeList, towns, roadManager, mapX + i, mapY + j, map.getCoordX(mapX + i), map.getCoordY(mapY + j), GAME_CONNECTEDNESS);
+								newChunk.completeSetup(scale, time);
+								newChunk.initialSpawn(scale, time);
+								map.set(newChunk, map.getCoordX(mapX + i), map.getCoordY(mapY + j));
+								skip = true;
+								break;
+							}
+						}
+					}
+					if(skip){
+						break;
+					}
+				}
+				if(skip){
+					break;
+				}
+			}
+		}
+
+		public boolean isOnMap(int tx, int ty)
+		{
+			boolean onMap;
+			if(tx < 0)
+			{
+				onMap = false;
+			}
+			else if(tx >= map.toArray()[0].length)
+			{
+				onMap = false;
+			}
+			else if(ty < 0)
+			{
+				onMap = false;
+			}
+			else if(ty >= map.toArray().length)
+			{
+				onMap = false;
+			}
+			else
+			{
+				onMap = true;
+			}
+			return onMap;
+		}
+	}
+	//for effects
+	//<editor-fold defaultstate="collapsed">
+	ArrayList<Effect> effects;
+	private void setupEffects(){
+		effects = new ArrayList<>();
+	}
+
+	private void checkEffectDespawn(){
+		for(int i=0; i<effects.size(); i++){
+			boolean done = effects.get(i).checkDespawn(time);
+			if(done){
+				effects.remove(i);
+			}
+		}
+	}
+
+	void drawEffects(Graphics2D g){
+		for(int i=0; i<effects.size(); i++){
+			effects.get(i).drawEffect(g, getDrawingOffsetX(scale), getDrawingOffsetY(scale), scale);
+		}
+	}
+	//</editor-fold>
+
+	//for the abilities
+	//<editor-fold defaultstate="collapsed">
+//	private void drawAbilityIcons(Graphics2D g){
+////		g.setColor(Color.white);
+////
+////		g.fillRect(0, (int) (screenHeight - scale * 3), (int)(scale * 2), (int)(scale * 2));
+////		g.drawImage(arrowIcon, 0, (int) (screenHeight - scale * 3), (int)(scale * 2), (int)(scale * 2), this);
+//
+////		g.fillRect((int) (screenWidth - (int)(scale * 2)), (int) (screenHeight - scale * 3), (int)(scale * 2), (int)(scale * 2));
+//
+////		g.fillRect((int) (scale * 2), (int) (screenHeight - scale * 3), (int)(scale * 2), (int)(scale * 2));
+////		g.drawImage(dashIcon, (int) (scale * 2), (int) (screenHeight - scale * 3), (int)(scale * 2), (int)(scale * 2), this);
+//
+////		g.setColor(new Color(0, 0, 0, 50));
+////		g.fillRect(0, (int) (screenHeight - scale * 3), (int)(scale * 2), (int) ((scale * 2) * player.getCDPercent1(time)) );
+////		g.fillRect((int) (scale * 2), (int) (screenHeight - scale * 3), (int)(scale * 2), (int) ((scale * 2) * player.getCDPercent2(time)) );
+//	}
+	//</editor-fold>
+
+	//for the level
+	//<editor-fold defaultstate="collapsed">
+	int levelBarWidth, levelBarHeight;
+	private void setupCharLevel(){
+		levelBarWidth = (int) (screenWidth / 10);
+		levelBarHeight = levelBarWidth / 5;
+	}
+	//</editor-fold>
+
+	//for the inventory
+	//<editor-fold defaultstate="collapsed">
+//	boolean drawInventory = true;
+//	int invWinWidth, invWinHeight, invX, invY, slotWidth, slotHeight, slotOffset;
+//	private void setupInventory(){
+//		invWinWidth = (int) (screenWidth / 3);
+//		invWinHeight = (int) (screenHeight / 2);
+//		invX = (int) (screenWidth / 3);
+//		invY = (int) (screenHeight / 4);
+//		slotWidth = invWinWidth / 4;
+//		slotHeight = invWinHeight / 4;
+//		slotOffset = slotWidth / 4;
+//	}
+
+//	private void drawInventory(Graphics2D g){
+//		if(drawInventory){
+//			g.setColor(new Color(0, 0, 0, 100));
+//			//background
+//			g.fillRect(invX, invY, invWinWidth, invWinHeight);
+//
+//			//item background and information
+//			g.setColor(new Color(50, 50, 50, 100));
+//			g.fillRect(invX + slotOffset, (int) (screenHeight/2 - slotHeight/2), slotWidth, slotHeight);
+//			g.fillRect(invX + invWinWidth - slotWidth - slotOffset, (int) (screenHeight/2 - slotHeight/2), slotWidth, slotHeight);
+//			g.fillRect(invX + invWinWidth/2 - slotWidth/2, (int) (screenHeight/2 - slotHeight/2), slotWidth, slotHeight);
+//		}
+//	}
+	//</editor-fold>
+
+	//Methods for preparing the game
+	//<editor-fold defaultstate="collapsed">
+	private void setupBiomes(){
+		biomeList = new ArrayList<>();
+		File biomeInfoFile = new File("settings/biome.info");
+		if(!biomeInfoFile.exists()){
+			try {
+				biomeInfoFile.createNewFile();
+			} catch (IOException ex) {
+				WRITE("ERROR - Was not able to create the biome info file");
+			}
+		}
+		try {
+			BufferedReader br = new BufferedReader(new FileReader(biomeInfoFile));
+			String readLine = "";
+			int biomeIndex = 0;
+			while((readLine = br.readLine()) != null){
+				if(!readLine.startsWith("//")){
+					readLine = readLine.replace("\t", "");
+					readLine = readLine.replace(" ", "");
+					WRITE(readLine);
+
+					String[] splitReadLine = readLine.split(":");
+
+					biomeList.add(new Biome(splitReadLine[0]));
+					biomeList.get(biomeIndex).setColor(Color.PINK);
+					biomeList.get(biomeIndex).index = biomeIndex;
+					biomeList.get(biomeIndex).setFloorIndex(Tools.Parse.getIntParse(splitReadLine[1]));
+					biomeList.get(biomeIndex).setObjProb(Tools.Parse.getDoubleParse(splitReadLine[2]));
+					biomeList.get(biomeIndex).setObjIndex(Tools.Parse.getIntParse(splitReadLine[3]));
+					biomeList.get(biomeIndex).setWaterProbability(Tools.Parse.getDoubleParse(splitReadLine[4]));
+					biomeList.get(biomeIndex).setWaterSize(Tools.Parse.getIntParse(splitReadLine[5]));
+					biomeList.get(biomeIndex).setTreasureProb(Tools.Parse.getDoubleParse(splitReadLine[6]));
+
+					biomeIndex++;
+				}
+			}
+		} catch (FileNotFoundException ex) {
+			WRITE("ERROR - Was not able to create buffered reader for biome info file");
+		} catch (IOException ex) {
+			WRITE("ERROR - was not able to read from the biome info file");
+		}
+	}
+
+	private void setupEvents(JFrame frame){
+		frame.addKeyListener(new KE());
+		frame.addMouseListener(new ME());
+	}
+
+	private void setupGame(int width, int height) {
+		enemyThread = new Thread(new EnemyManager(this));
+		chunkThread = new Thread(new ChunkManager());
+		graphicsThread = new Thread(new GraphicsEngine());
+
+		setupScale(width, height);
+		setupTimer();
+		//setupPlayerSpeed();
+		//prepareEnemies();
+		//setupOffsets();
+
+		update.start();
+		enemyThread.start();
+		chunkThread.start();
+		graphicsThread.start();
+	}
+
+	private void setupTimer(){
+		update = new Timer(17, this);
+	}
+
+	private void setupScale(int width, int height){
+		screenWidth = width;
+		System.out.println("the width is: " + screenWidth);
+		screenHeight = height;
+		//scale = screenWidth / 30;
+		chunkSize = CHUNK_SIZE;
+	}
+	//</editor-fold>
+
+	//extra code for running game
+	//<editor-fold defaultstate="collapsed">
+	double time;
+	long lastUpdate, currentTime;
+	@Override
+	public void actionPerformed(ActionEvent e) {
+		currentTime = System.nanoTime();
+		if((currentTime - lastUpdate) >= 17000000){
+			time += (currentTime - lastUpdate) / 1000000;
+			lastUpdate = currentTime;
+		}
+
+		updateGame();
+	}
+	//</editor-fold>
+
+	//Drawing to the screen
+	//<editor-fold defaultstate="collapsed">
+	@Override
+	public void paint(Graphics g){
+
+		super.paint(g);
+		Graphics2D g2d = (Graphics2D) g;
+
+		currentGraphicsTime = System.nanoTime();
+
+		/*
+			Something in drawing appears to be slowing down the game when you sit in a chunk for a while
+				seems to be something related to the enemies in the chunk - not size of the array list though as that stays at about 0/1/2 (small sizes)
+
+			probably the draw enemies
+
+			narrowed down
+				either drawmap, player, or interface...
+				most likely something with the thread not running correctly...
+				Another way to cap the drawing rate would be to add a queue int that gets added to every so many miliseconds
+					two threads or so would subtract one and update the screen
+
+			add back the drawing stuff when done narrowing it down
+		*/
+		if(displayingMap){
+			drawMap(g2d);
+			drawTownNames(g2d, (scale / mapScale));
+			//drawPlayer(g2d);
+		}
+		else{
+			drawMain(g2d);
+
+			drawEnemies(g2d);
+			drawPlayerProjectiles(g2d);
+			drawEnemyProjectiles(g2d);
+
+			drawObjects(g2d);
+
+			drawPlayer(g2d);
+			drawEffects(g2d);
+			drawEntities(g2d);
+			drawInterface(g2d);
+			drawQuestData(g2d);
+			//drawMinimap(g2d);
+
+			drawTownNames(g2d, scale);
+		}
+
+		repaints++;
+		if((currentGraphicsTime - lastFPSUpdate) >= 1000000000){
+			fps = repaints;
+			lastFPSUpdate = currentGraphicsTime;
+			repaints = 0;
+		}
+	}
+
+	private void drawTownNames(Graphics2D g, float theScale){
+		for(int i=0; i<towns.size(); i++){
+			Town t = towns.get(i);
+			for(int m=0; m<t.chunks.length; m++){
+				Point p = t.chunks[m];
+				if(p != null){
+					int x = (int)(getDrawingOffsetX(theScale) + ((p.x + .5) * CHUNK_SIZE * theScale));
+					int y = (int)(getDrawingOffsetY(theScale) + ((p.y + .5) * CHUNK_SIZE * theScale));
+
+					g.setColor(Color.YELLOW);
+					drawStringBounce(g, t.name, x, y);
+				}
+			}
+		}
+	}
+
+	int mapScale = 16;
+	private void drawMap(Graphics2D g){
+		int x = getDrawingOffsetX(scale) + (int) Math.round((player.getIntX() * scale));
+		int y = getDrawingOffsetY(scale) + (int) Math.round((player.getIntY() * scale));
+
+		for(int j=-(STANDARD_SCALE_DRAW_HEIGHT * mapScale); j<=(STANDARD_SCALE_DRAW_HEIGHT * mapScale); j++){
+			for(int i=-(STANDARD_SCALE_DRAW_WIDTH * mapScale); i<=(STANDARD_SCALE_DRAW_WIDTH * mapScale); i++){
+				Tile currentTile = map.getTile(player.getIntX() + i, player.getIntY() + j);
+
+				if(currentTile != null){
+					Image floorImage = floorImages.get(currentTile.floor);
+					int theScale = (int)(scale / mapScale);
+
+					if(floorImage != null){
+						//WRITE("a non-null image is available for drawing to floor");
+						int ow = floorImage.getWidth(null);
+						int oh = floorImage.getHeight(null);
+
+						int woffset = (int)Math.round(theScale/2 - ((ow/IMAGE_TILE_SIZE)*theScale)/2);
+						int hoffset = (int)Math.round(theScale/2 - ((oh/IMAGE_TILE_SIZE)*theScale)/2);
+						int width = (int)Math.round((ow/IMAGE_TILE_SIZE) * theScale);
+						int height = (int)Math.round((oh/IMAGE_TILE_SIZE) * theScale);
+
+						//g.drawImage(floorImage, x + i * theScale, y + j * theScale, theScale, theScale, null);
+						g.drawImage(floorImage, x + i * theScale + woffset, y + j * theScale + hoffset, width, height, null);
+					}
+				}
+			}
+		}
+
+		for(int j=-(STANDARD_SCALE_DRAW_HEIGHT * mapScale); j<=(STANDARD_SCALE_DRAW_HEIGHT * mapScale); j++){
+			for(int i=-(STANDARD_SCALE_DRAW_WIDTH * mapScale); i<=(STANDARD_SCALE_DRAW_WIDTH * mapScale); i++){
+				drawObject(g, x, y, i, j, (int)(scale / mapScale));
+			}
+		}
+
+		//g.setColor(Color.RED);
+		//drawStringBounce(g, "You are here", (int)(screenWidth*), (int) (screenHeight/2));
+		//player.draw(g, screenWidth/2 - scale/2, screenHeight/2 - scale/2, scale, scale, scale, this, time, getMX(), getMY(), screenWidth, screenHeight);
+		player.drawMapStill(characterMovement, g, screenWidth/2 - scale/2, screenHeight/2 - scale/2, scale, this);
+	}
+
+	private void drawPlayerProjectiles(Graphics2D g){
+		for(int i=0; i<playerProjectiles.size(); i++){
+			playerProjectiles.get(i).draw(axeImages,	g, getDrawingOffsetX(scale), getDrawingOffsetY(scale), scale, (int)screenWidth/2, (int)screenHeight/2, time, this);
+		}
+	}
+
+	private void drawEnemyProjectiles(Graphics2D g){
+		for(int i=0; i<enemyProjectiles.size(); i++){
+			enemyProjectiles.get(i).draw(daggerImages,	g, getDrawingOffsetX(scale), getDrawingOffsetY(scale), scale, (int)screenWidth/2, (int)screenHeight/2, time, this);
+		}
+	}
+
+	private void drawEnemies(Graphics2D g){
+		for(int j = -chunkHeightDistance(); j <= chunkHeightDistance(); j++){
+			for(int i = -chunkWidthDistance(); i <= chunkWidthDistance(); i++){
+				Chunk current = map.getFromCoord(getMapChunkX() + i, getMapChunkY() + j);
+				if(current != null){
+					current.drawEnemies(meleeMovement, rangedMovement, vendorUnitMovement, questUnitMovement, civMovement, g, getDrawingOffsetX(scale), getDrawingOffsetY(scale), (int) scale, this, time);
+				}
+			}
+		}
+	}
+
+	/*
+		the drawing offset to place things correctly relative to player
+
+		the extra scale addition at the end is to correct for half of players size to center on middle of player
+	*/
+	private int getDrawingOffsetX(float scale){
+		return (int) Math.round(screenWidth/2 - (player.getX() * scale) - scale/2);
+	}
+
+	private int getDrawingOffsetY(float scale){
+		return (int) (screenHeight/2 - (player.getY() * scale) - scale/2);
+	}
+
+	private void drawInterface(Graphics2D g){
+		//drawInventory(g);
+//		drawAbilityIcons(g);
+		drawLevel(g);//draws after abilities because of special interface to cover up
+		drawStats(g);
+		drawInventory(g);
+
+		if(showDeveloperStats){
+			drawDeveloperData(g);
+		}
+
+		if(gameOver){
+			g.setFont(defaultFont48);//font size 48
+			g.setColor(new Color(0, 0, 0, 150));
+			g.fillRect(0, (int)(screenHeight/2), (int)screenWidth, (int)(screenHeight/8));
+			g.setColor(new Color(200, 0, 0));
+			g.drawString("You died. Press space to respawn", (float) (screenWidth*.3), (float) (screenHeight*.6));
+		}
+	}
+
+	private void drawDeveloperData(Graphics2D g){
+		g.setFont(defaultFont24);//font size 24
+		g.setColor(Color.WHITE);
+		g.drawString("FPS: " + fps + " | UPS: " + ups + " | EPS: " + eps + " | CPS: " + cps, screenWidth / 20, screenHeight / 10);
+		g.drawString("Game Time: " + ("(" + getTimeMinutes() + ":" + getTimeSeconds() + ":" + getTimeMilli() + ")"), screenWidth / 20, screenHeight / 10 + screenHeight / 30);
+		g.drawString("X: " + player.getX() + " | Y: " + player.getY(), screenWidth / 20, screenHeight / 10 + 2 * screenHeight / 30);
+		g.drawString("lumber: " + player.wood, screenWidth / 20, screenHeight / 10 + 3 * screenHeight / 30);
+		g.drawString("rock: " + player.rock, screenWidth / 20, screenHeight / 10 + 4 * screenHeight / 30);
+		g.drawString("gold: " + player.gold, screenWidth / 20, screenHeight / 10 + 5 * screenHeight / 30);
+		g.drawString("health pots: " + player.healthPots, screenWidth / 20, screenHeight / 10 + 6 * screenHeight / 30);
+	}
+
+	//for drawing quests
+	//<editor-fold defaultstate="collapsed">
+	int questBumper = 0;
+	int questDrawingOffset = 0;
+	Color semiTransparent = new Color(0,0,0,150);
+	private void drawQuestData(Graphics2D g){
+		questBumper = (int)(screenHeight/5.0);
+		g.setFont(defaultFont24);
+		g.setColor(Color.YELLOW);
+
+		String totalQuestString = "";
+		for(int i=questDrawingOffset; i<quests.getNumberOfCurrentQuests(); i++){
+			Quest quest = quests.getCurrentQuest(i);
+			totalQuestString += quest.getTitle() + System.lineSeparator() +
+								quest.getDescription() + System.lineSeparator() +
+								quest.getAwardText()+ System.lineSeparator() +
+								quest.getProgress(player) + System.lineSeparator();
+		}
+
+		int drawWidth = g.getFontMetrics(defaultFont24).charWidth('H') * 24;
+		int xLocation = (int) (screenWidth - drawWidth);
+		String[] allStrings = totalQuestString.split(System.lineSeparator());
+		int questWindowHeight = g.getFontMetrics(defaultFont24).getHeight()*4 + g.getFontMetrics(defaultFont48).getHeight();
+		double offset = 0;
+
+		if(allStrings.length < 4){
+			allStrings = new String[0];
+		}
+
+		for(int i=0; i<allStrings.length; i += 4){
+			g.setColor(semiTransparent);
+			g.fillRect(xLocation - 12, questBumper + (int) (questDrawingOffset + offset), drawWidth + 12, questWindowHeight);
+
+			offset += g.getFontMetrics(defaultFont24).getHeight()/2;
+
+			g.setColor(Color.YELLOW);
+			g.setFont(defaultFont24);
+			g.drawString("------------------------", xLocation, questBumper + (int) (questDrawingOffset + offset));
+			offset += g.getFontMetrics(defaultFont24).getHeight();
+
+			g.setFont(defaultFont48);
+			g.drawString("" + allStrings[i], xLocation, questBumper + (int) (questDrawingOffset + offset));
+			offset += g.getFontMetrics(defaultFont48).getHeight();
+
+			try{
+				g.setFont(defaultFont24);
+				g.drawString(" " + allStrings[i + 1], xLocation, questBumper + (int) (questDrawingOffset + offset));
+				offset += g.getFontMetrics(defaultFont24).getHeight();
+
+				g.setFont(defaultFont24);
+				g.drawString(" " + allStrings[i + 2], xLocation, questBumper + (int) (questDrawingOffset + offset));
+				offset += g.getFontMetrics(defaultFont24).getHeight();
+
+				g.setFont(defaultFont24);
+				g.drawString(" " + allStrings[i + 3], xLocation, questBumper + (int) (questDrawingOffset + offset));
+				offset += g.getFontMetrics(defaultFont24).getHeight();
+
+				offset += g.getFontMetrics(defaultFont24).getHeight();
+			}catch(ArrayIndexOutOfBoundsException e){
+				WRITE("Tried to access an out of bounds index for quest details");
+			}
+		}
+
+//		g.drawString(totalQuestString,
+//				screenWidth - g.getFontMetrics(defaultFont24).stringWidth(totalQuestString),
+//				screenHeight/10);
+	}
+	//</editor-fold>
+
+	double minimapWidth = .1;
+	double minimapHeight = .1;
+	//double mapWidth = .5;
+	//double mapHeight = .5;
+//	private void drawMinimap(Graphics2D g){
+//		g.setColor(Color.BLACK);
+//		g.fillRect((int) (screenWidth - minimapWidth), 0, (int)minimapWidth, (int)minimapHeight);
+//	}
+
+	private void drawInventory(Graphics2D g){
+		g.setColor(new Color(0, 0, 0, 150));
+
+		//for background
+		g.fillRect(	(int)	(screenWidth/2 - screenWidth/5),
+					0,
+					(int)	(2*screenWidth/5),
+					(int)	(screenWidth/20)
+			);
+
+		//draw squares - temporarily until interface overlay is added
+		g.setColor(Color.GRAY);
+		for(int i=0; i<8; i++){
+			g.drawRect((int)	(screenWidth/2 - screenWidth/5 + i*(screenWidth/20)),
+					0,
+					(int)	(screenWidth/20),
+					(int)	(screenWidth/20)
+			);
+			g.drawString("" + (i + 1), (screenWidth/2 - screenWidth/5 + i*(screenWidth/20)), (screenWidth/20));
+			//Image entImage = entImages.get(i);
+			//if(entImage != null){
+			//}
+		}
+
+		if(player.getHealthPots() > 0){
+			Image hImage = entImages.get(-ENTITY_HEALTHPOT);
+			if(hImage != null){
+				g.drawImage(
+						hImage,
+						(int)	(screenWidth/2 - screenWidth/5),
+						0,
+						(int)	(screenWidth/20),
+						(int)	(screenWidth/20),
+						this
+				);
+
+				if(player.getHealthPots() > 1){
+					g.setColor(Color.WHITE);
+					g.setFont(defaultFont24);
+					g.drawString("" + player.healthPots, (int)	(screenWidth/2 - 3*screenWidth/20 - 24), 24);
+				}
+			}
+			else{
+				WRITE("The image was null");
+			}
+		}
+	}
+
+	private void drawLevel(Graphics2D g){
+		//background for information - must be behind level bar
+		//g.setColor(new Color(50, 50, 50));
+		//g.fillRect((int) (screenWidth/2 - 2*levelBarWidth/2), (int) (screenHeight - levelBarWidth), (int) (levelBarWidth * (5.0/2)), (int) (levelBarWidth * (4.0/5)));
+
+		//background gray bar
+		g.setColor(new Color(50, 50, 50, 100));
+		g.fillRect(0, (int)(screenHeight - levelBarHeight), (int) screenWidth, levelBarHeight);
+
+		//drawing the rects for bar separation
+		g.setColor(Color.BLACK);
+		for(int i=0; i<10; i++){
+			g.drawRect(i * levelBarWidth, (int) (screenHeight - levelBarHeight), levelBarWidth, levelBarHeight);
+		}
+
+		//drawing the status of next level in green
+		g.setColor(new Color(0, 150, 0, 100));
+		g.fillRect(0, (int)(screenHeight - levelBarHeight), (int) ((player.getLevelCompleted()) * screenWidth), levelBarHeight);
+//			g.setFont(new Font("Monospaced", 0, (int) scale/2));
+//			g.drawString("r: " + red, (int)(screenWidth/2), (int) (screenHeight - .5*levelBarWidth/5));
+//			g.drawString("g: " + green, (int)(screenWidth/2), (int) (screenHeight - 1.5*levelBarWidth/5));
+//			g.drawString("b: " + blue, (int)(screenWidth/2), (int) (screenHeight - 2.5*levelBarWidth/5));
+
+		//draw stats information
+	}
+
+	int statWindowHeight = 150;
+	int statWindowWidth = 300;
+	private void drawStats(Graphics2D g){
+		//stat background
+		g.setColor(semiTransparent);
+		g.fillRect(0, (int) (screenHeight - statWindowHeight - levelBarHeight), statWindowWidth, statWindowHeight);
+
+		//level
+		g.setColor(Color.WHITE);
+		g.setFont(defaultFont24);//font size 24
+		String theLevelString = "Level: " + player.getLevel();
+		g.drawString(theLevelString,
+				(int)(statWindowWidth/2 - g.getFontMetrics(defaultFont24).stringWidth(theLevelString)/2),
+				screenHeight - (int)(statWindowHeight*.8) - levelBarHeight);
+
+
+		//health bar
+		g.setColor(Color.RED);
+		g.drawRoundRect(
+				(int)(statWindowWidth*.05),
+				(int) screenHeight - (int)(statWindowHeight*.7) - levelBarHeight,
+				(int) (statWindowWidth * .9),
+				(int) (statWindowHeight * .2),
+				(int) (statWindowWidth/16),
+				(int) (statWindowHeight/16));
+		g.fillRoundRect(
+				(int)(statWindowWidth*.05),
+				(int) screenHeight - (int)(statWindowHeight*.7) - levelBarHeight,
+				(int) (statWindowWidth * .9 * (player.getHealth() / player.getMaxHealth())),
+				(int) (statWindowHeight * .2),
+				(int) (statWindowWidth/16),
+				(int) (statWindowHeight/16));
+
+		//health information
+		g.setColor(Color.WHITE);
+		g.setFont(defaultFont24);//font size 24
+		String healthString = "Health " + (int)player.getHealth() + "/" + (int)player.getMaxHealth();
+		g.drawString(healthString,
+				(int)(statWindowWidth/2 - g.getFontMetrics(defaultFont24).stringWidth(healthString)/2),
+				(int) screenHeight - (int)(statWindowHeight*.55) - levelBarHeight);
+
+		//for entities
+		g.drawImage(entImages.get(-ENTITY_WOOD),
+				(int)(statWindowWidth*.05),
+				(int)(screenHeight - levelBarHeight - (statWindowHeight * .25)),
+				(int)(statWindowWidth*.1),
+				(int)(statWindowWidth*.1),
+				null);
+			g.drawString("" + (int)player.getLumber(),
+					(int)(statWindowWidth*.15),
+					(int)(screenHeight - levelBarHeight - (statWindowHeight * .15)));
+		g.drawImage(entImages.get(-ENTITY_ROCK),
+				(int)(statWindowWidth*.35),
+				(int)(screenHeight - levelBarHeight - (statWindowHeight * .25)),
+				(int)(statWindowWidth*.1),
+				(int)(statWindowWidth*.1),
+				null);
+			g.drawString("" + (int)player.getRock(),
+					(int)(statWindowWidth*.45),
+					(int)(screenHeight - levelBarHeight - (statWindowHeight * .15)));
+		g.drawImage(entImages.get(-ENTITY_GOLD),
+				(int)(statWindowWidth*.65),
+				(int)(screenHeight - levelBarHeight - (statWindowHeight * .25)),
+				(int)(statWindowWidth*.1),
+				(int)(statWindowWidth*.1),
+				null);
+			g.drawString("" + (int)player.getGold(),
+					(int)(statWindowWidth*.75),
+					(int)(screenHeight - levelBarHeight - (statWindowHeight * .15)));
+	}
+
+	//extra draw functions cast by paint method
+	//<editor-fold defaultstate="collapsed">
+	private void drawStringBounce(Graphics2D g, String text, int x, int y){
+		int xOffset = g.getFontMetrics(defaultFont24).charWidth('H') * text.length()/2;
+		int yOffset = g.getFontMetrics(defaultFont24).getHeight()/2;
+	g.setFont(defaultFont24);
+		g.drawString(text, x - xOffset,
+							(int)(y - Math.abs((time%1000) - 500) / 50) - yOffset
+		);
+	}
+
+	private double getTimeMilli(){
+		return time%1000;
+	}
+
+	private int getTimeSeconds(){
+		return (int)((time / 1000) % 60);
+	}
+
+	private int getTimeMinutes(){
+		return (int) ((time / 1000) / 60);
+	}
+
+	private void drawPlayer(Graphics2D g){
+		player.draw(characterMovement, g, screenWidth/2 - scale/2, screenHeight/2 - scale/2, scale, scale, scale, this, time, getMX(), getMY(), screenWidth, screenHeight);
+		//fix character 2.5d object translation
+		int drawingX = getDrawingOffsetX(scale) + (int) Math.round((player.getIntX() * scale));
+		int drawingY = getDrawingOffsetY(scale) + (int) Math.round((player.getIntY() * scale));
+
+		for(int j=1; j<=STANDARD_SCALE_DRAW_HEIGHT; j++){
+			for(int i=-STANDARD_SCALE_DRAW_WIDTH; i<=STANDARD_SCALE_DRAW_WIDTH; i++){
+				drawObject(g, drawingX, drawingY, i, j, (int)scale);
+			}
+		}
+	}
+
+	private void drawMain(Graphics2D g){
+		g.setColor(Color.BLUE);
+		int drawingX = getDrawingOffsetX(scale) + (int) Math.round((player.getIntX() * scale));
+		int drawingY = getDrawingOffsetY(scale) + (int) Math.round((player.getIntY() * scale));
+		drawChunk(g, drawingX, drawingY);
+	}
+
+	private void drawObjects(Graphics2D g){
+		g.setColor(Color.BLUE);
+		int drawingX = getDrawingOffsetX(scale) + (int) Math.round((player.getIntX() * scale));
+		int drawingY = getDrawingOffsetY(scale) + (int) Math.round((player.getIntY() * scale));
+		//draw objects above player
+
+		for(int j=-STANDARD_SCALE_DRAW_HEIGHT; j<=0; j++){
+			for(int i=-STANDARD_SCALE_DRAW_WIDTH; i<=STANDARD_SCALE_DRAW_WIDTH; i++){
+				drawObject(g, drawingX, drawingY, i, j, (int)scale);
+			}
+		}
+
+	}
+
+	HashMap<Integer, Image> floorImages, decorImages, entImages;
+	Color blockHealthColor = new Color(0, 0, 255, 150);
+	private void drawChunk(Graphics2D g, int x, int y){
+		//draw floor tiles
+
+		for(int j=-STANDARD_SCALE_DRAW_HEIGHT; j<=STANDARD_SCALE_DRAW_HEIGHT; j++){
+			for(int i=-STANDARD_SCALE_DRAW_WIDTH; i<=STANDARD_SCALE_DRAW_WIDTH; i++){
+				Tile currentTile = map.getTile(player.getIntX() + i, player.getIntY() + j);
+
+				if(currentTile != null){
+					Image floorImage = floorImages.get(currentTile.floor);
+					int theScale = (int)scale;
+
+					if(floorImage != null){
+						//WRITE("a non-null image is available for drawing to floor");
+						int ow = floorImage.getWidth(null);
+						int oh = floorImage.getHeight(null);
+
+						int woffset = (int)Math.round(theScale/2 - ((ow/IMAGE_TILE_SIZE)*theScale)/2);
+						int hoffset = (int)Math.round(theScale/2 - ((oh/IMAGE_TILE_SIZE)*theScale)/2);
+						int width = (int)Math.round((ow/IMAGE_TILE_SIZE) * theScale);
+						int height = (int)Math.round((oh/IMAGE_TILE_SIZE) * theScale);
+
+						//g.drawImage(floorImage, x + i * theScale, y + j * theScale, theScale, theScale, null);
+						g.drawImage(floorImage, x + i * theScale + woffset, y + j * theScale + hoffset, width, height, null);
+					}
+				}
+			}
+		}
+
+		//fix for objects drawing after character is in the player drawing call
+	}
+
+	private void drawObject(Graphics2D g, int x, int y, int i, int j, int theScale){
+		Tile currentTile = map.getTile(player.getIntX() + i, player.getIntY() + j);
+
+		if(currentTile != null){
+			Image objectImage = decorImages.get(currentTile.decor);
+			//int theScale = (int)scale;
+
+			if(objectImage != null){
+				int ow = objectImage.getWidth(null);
+				int oh = objectImage.getHeight(null);
+				int woffset = (int)Math.round(theScale/2 - ((ow/IMAGE_TILE_SIZE)*theScale)/2);
+				//WRITE("image width is: " + ow + " and the offset is: " + woffset);
+				int hoffset = (int)Math.round(theScale - ((oh/IMAGE_TILE_SIZE)*theScale));
+				int width = (int)Math.round((ow/IMAGE_TILE_SIZE) * theScale);
+				int height = (int)Math.round((oh/IMAGE_TILE_SIZE) * theScale);
+
+				g.drawImage(objectImage, x + i * theScale + woffset, y + j * theScale + hoffset, width, height, null);
+				//g.fillRect(x + i*theScale , y + j*theScale, theScale, theScale);
+				if(!currentTile.maxHealth()){
+					g.setColor(blockHealthColor);
+					g.fillRect(x + i * theScale, y + j * theScale + hoffset, (int) (theScale * currentTile.percentHealth()), theScale/10);
+				}
+
+				if(currentTile.decor == SPECIAL_SPAWN){
+					g.setColor(Color.YELLOW);
+					g.setFont(defaultFont24);
+//					g.drawString("Spawn", x + i * theScale,
+//							(int)(y + j * theScale + hoffset - Math.abs((time%1000) - 500) / 50));
+					//drawStringBounce(g, "Spawn", x + i * theScale, y + j * theScale + hoffset);
+				}
+				else if(currentTile.decor == SPECIAL_SMITH){
+					g.setColor(Color.YELLOW);
+					g.setFont(defaultFont24);
+//					g.drawString("Blacksmith", x + i * theScale - theScale/4,
+//							(int)(y + j * theScale + hoffset - Math.abs((time%1000) - 500) / 50));
+					//drawStringBounce(g, "Blacksmith", x + i * theScale, y + j * theScale + hoffset);
+				}
+			}
+		}
+	}
+	//</editor-fold>
+
+	//</editor-fold>
+
+	//methods for retrieving character location information
+	//<editor-fold defaultstate="collapsed">
+	public int getMapChunkX(){
+		int mapX = (int) Math.floor((player.getX()) / (chunkSize));
+		return mapX;
+	}
+
+	public int getMapChunkY(){
+		int mapY = (int) Math.floor((player.getY()) / (chunkSize));
+		return mapY;
+	}
+
+	/*
+
+		Can use getMapX(int) and getMapY(int) for collisions to test quickly if any if the four corners are contained by another square
+			will be more simple and faster than previous route which pretty much did the same thing but many more calls in order to get correct map x/y
+
+	*/
+	public int getMapX(){
+		//return (int) Math.floor(player.getX());
+		return getMapX((int) player.getX());
+	}
+
+	public int getMapY(){
+		//return (int) Math.floor(player.getY());
+		return getMapY((int) player.getY());
+	}
+
+	public int getMapX(int x){
+		return (int) Math.floor(x);
+	}
+
+	public int getMapY(int y){
+		return (int) Math.floor(y);
+	}
+
+	//</editor-fold>
+
+	//code for running the graphics engine thread
+	//<editor-fold defaultstate="collapsed">
+	short fps, ups, eps, cps;
+	short repaints, updates, eupdates, cupdates;
+	long	lastFPSUpdate, currentGraphicsTime,
+			lastUPSUpdate, currentUpdateTime,
+			lastEPSUpdate, currentEUpdateTime,
+			lastCPSUpdate, currentCUpdateTime;
+	private class GraphicsEngine implements Runnable, ActionListener{
+		Timer time;
+		@Override
+		public void run() {
+			lastFPSUpdate = 0;
+			currentGraphicsTime = System.nanoTime();
+			fps = 0;
+			time = new Timer(16, this);
+			time.start();
+			graphicsUpdate();
+		}
+
+		private void graphicsUpdate(){
+//			while(!closeDown){
+				//sleeps for 8 milli seconds to create cap - caps cpu usage
+//				try {
+//					sleep(8);
+//				} catch (InterruptedException ex) {
+//					WRITE("ERROR - on trying to sleep in graphics thread");
+//				}
+				repaint();
+				if(closeDown){
+					time.stop();
+				}
+//			}
+		}
+
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			graphicsUpdate();
+		}
+	}
+	//</editor-fold>
+
+	//Working with projectiles
+	//<editor-fold defaultstate="collapsed">
+	ArrayList<Projectile> playerProjectiles;
+	Image[] buckshotImages, dashImages, arrowImages, knifeImages;
+	Image buckIcon, dashIcon, arrowIcon;
+	void setupProjectileImages(){
+		buckshotImages = new Image[] {	(new ImageIcon("images/character/weapon/buckshot1.png")).getImage(),
+										(new ImageIcon("images/character/weapon/buckshot2.png")).getImage(),
+										(new ImageIcon("images/character/weapon/buckshot3.png")).getImage(),
+										(new ImageIcon("images/character/weapon/buckshot4.png")).getImage(),
+										(new ImageIcon("images/character/weapon/buckshot5.png")).getImage(),
+										(new ImageIcon("images/character/weapon/buckshot6.png")).getImage(),
+										(new ImageIcon("images/character/weapon/buckshot7.png")).getImage(),
+										(new ImageIcon("images/character/weapon/buckshot8.png")).getImage(),
+										(new ImageIcon("images/character/weapon/buckshot9.png")).getImage()
+										};
+		buckIcon = (new ImageIcon("images/character/weapon/icon.png")).getImage();
+		dashImages = new Image[] {	(new ImageIcon("images/character/ability/dash1.png")).getImage(),
+									(new ImageIcon("images/character/ability/dash2.png")).getImage(),
+									(new ImageIcon("images/character/ability/dash3.png")).getImage(),
+									(new ImageIcon("images/character/ability/dash4.png")).getImage(),
+									(new ImageIcon("images/character/ability/dash5.png")).getImage(),
+									(new ImageIcon("images/character/ability/dash6.png")).getImage()
+									};
+		dashIcon = (new ImageIcon("images/character/ability/icon.png")).getImage();
+
+		arrowImages = new Image[] {	(new ImageIcon("images/character/weapon/ammo1.png")).getImage(),
+									(new ImageIcon("images/character/weapon/ammo2.png")).getImage(),
+									(new ImageIcon("images/character/weapon/ammo3.png")).getImage(),
+									(new ImageIcon("images/character/weapon/ammo4.png")).getImage()};
+
+		arrowIcon = (new ImageIcon("images/character/weapon/ammoIcon.png")).getImage();
+	}
+
+	void moveProjectiles(){
+		if(playerProjectiles != null){
+			for(int i=0; i<playerProjectiles.size(); i++){
+				Projectile current = playerProjectiles.get(i);
+				current.move();
+			}
+		}
+	}
+
+	void checkRemoveProjectiles(){
+		for(int i=0; i<playerProjectiles.size(); i++){
+			//WRITE("the spawn timer difference is: " + (time - playerProjectiles.get(i).getSpawnTime()));
+			Projectile bullet = playerProjectiles.get(i);
+			if(bullet.intersects(map, entities, eid, time)){
+				playerProjectiles.remove(i);
+			}
+			else if(time >= bullet.getSpawnTime() + bullet.getDelay()){
+				playerProjectiles.remove(i);
+			}
+			else if(bullet.getTeam() == TEAM_PLAYER){
+				for(int m = -2; m <= 2; m++){
+					for(int k = -3; k <= 3; k++){
+						Chunk current = map.getFromCoord(getMapChunkX() + k, getMapChunkY() + m);
+						if(current != null){
+							checkPlayerProjectileEnemyDamage(current.getEnemyList(), bullet);
+						}
+					}
+				}
+			}
+			/*
+				check if the current square of the projectile is a solid tile - check with the middle of the square
+			*/
+		}
+	}
+
+	void checkPlayerProjectileEnemyDamage(ArrayList<Unit> enemies, Projectile bullet){
+		Unit enemyHit = null;
+
+		for(int j=0; j<enemies.size(); j++){
+			Unit current = enemies.get(j);
+			if(fullIntersects(bullet.getX(), bullet.getY(), bullet.getWidth(), bullet.getHeight(), current.getX(), current.getY(), current.getWidth(), current.getHeight())){
+				current.persue = true;
+				int dead = current.damage(bullet.getAttackBonus());
+				if(dead == 1){
+					addEnemyLoot(enemies.get(j));
+					quests.checkKillingQuests(player, current);
+					enemies.remove(j);
+					player.addExperience(GType.scaledExperienceFromLevel(current.getLevel()));
+				}
+				enemyHit = current;
+			}
+		}
+
+		if(enemyHit != null){
+			playerProjectiles.remove(bullet);
+			effects.add(new Effect(enemyHit.getX() + .5, enemyHit.getY() + .5, .75, .75, GType.EFFECT_BLOOD, time));
+		}
+	}
+	//</editor-fold>
+
+	//working with entities
+	ArrayList<Entity> entities;
+	HashMap<Integer, Integer> eid;
+	private void setupEntities(){
+		entities = new ArrayList<>();
+	}
+
+	private void checkEntityDespawn(){
+		for(int i=0; i<entities.size(); i++){
+			Entity current = entities.get(i);
+			if(current.shouldDespawn(time)){
+				entities.remove(i);
+			}
+		}
+	}
+
+	private void checkEntityPickup(){
+		/*
+			if the entity collides with player... pickup... if entity is close enough
+		*/
+		for(int i=0; i<entities.size(); i++){
+			Entity current = entities.get(i);
+			if(current.intersects(player)){
+				player.addEntity(current);
+				quests.checkCollectionQuests(player);
+				entities.remove(i);
+			}
+		}
+	}
+
+	private void drawEntities(Graphics2D g){
+		for(int i=0; i<entities.size(); i++){
+			entities.get(i).draw(g, entImages, time, getDrawingOffsetX(scale), getDrawingOffsetY(scale), scale, this);
+		}
+	}
+
+	/*
+
+		Code for enemy loot will be here, basically segregated to this method with the killed enemy parameter incase
+			level is needed to determine loot
+		Can add potions like other entities...
+
+	*/
+	private void addEnemyLoot(Unit killedEnemy){
+		if(entities != null){
+			double chance = Math.random();
+			if(chance < .5){
+				entities.add(new Entity(killedEnemy.getX() + .5, killedEnemy.getY() + .5, -ENTITY_GOLD, PP_NONE, ENTITY_GOLD, time));
+			}
+
+			chance = Math.random();
+			if(chance < .05){
+				entities.add(new Entity(killedEnemy.getX(), killedEnemy.getY(), -ENTITY_HEALTHPOT, PP_NONE, ENTITY_HEALTHPOT, time));
+			}
+
+			chance = Math.random();
+			if(chance < .1){
+				entities.add(new Entity(killedEnemy.getX() + .5, killedEnemy.getY(), -ENTITY_HEALTH, PP_NONE, ENTITY_HEALTH, time));
+			}
+		}
+	}
+	//code for key press action events
+	//<editor-fold defaultstate="collapsed">
+	boolean left, right, up, down;
+	class KE implements KeyListener {
+
+		@Override
+		public void keyTyped(KeyEvent e) {
+
+		}
+
+		@Override
+		public void keyPressed(KeyEvent e) {
+			//WRITE("a key was pressed");
+			int key = e.getKeyCode();
+			if(key == KeyEvent.VK_W){
+				up = true;
+				player.setDY(-1);
+			}
+			if(key == KeyEvent.VK_A){
+				left = true;
+				player.setDX(-1);
+			}
+			if(key == KeyEvent.VK_S){
+				down = true;
+				player.setDY(1);
+			}
+			if(key == KeyEvent.VK_D){
+				right = true;
+				player.setDX(1);
+			}
+			if(key == KeyEvent.VK_SPACE){
+				if(gameOver){
+					respawnPlayer();
+				}
+			}
+			if(key == KeyEvent.VK_M){
+				//if(!paused || displayingMap){
+				displayingMap = !displayingMap;
+//					if(displayingMap){
+//						paused = true;
+//					}
+//					else{
+//						paused = false;
+//					}
+				//}
+			}
+			if(key == KeyEvent.VK_F3){
+				showDeveloperStats = !showDeveloperStats;
+			}
+
+			//for inventory
+			if(key == KeyEvent.VK_1){
+				player.useHealthPot();
+			}
+			player.setAngle();
+
+			quests.checkKeyActionQuests(player, key, true);
+		}
+
+		@Override
+		public void keyReleased(KeyEvent e) {
+			int key = e.getKeyCode();
+			if(key == KeyEvent.VK_W){
+				if(down){
+					player.setDY(1);
+				}
+				else{
+					player.setDY(0);
+				}
+				up = false;
+			}
+			if(key == KeyEvent.VK_A){
+				if(right){
+					player.setDX(1);
+				}
+				else{
+					player.setDX(0);
+				}
+				left = false;
+			}
+			if(key == KeyEvent.VK_S){
+				if(up){
+					player.setDY(-1);
+				}
+				else{
+					player.setDY(0);
+				}
+				down = false;
+			}
+			if(key == KeyEvent.VK_D){
+				if(left){
+					player.setDX(-1);
+				}
+				else{
+					player.setDX(0);
+				}
+				right = false;
+			}
+			player.setAngle();
+
+			quests.checkKeyActionQuests(player, key, false);
+		}
+
+	}
+
+	boolean m1Held, m2Held;
+	int m1x, m2x;
+	class ME implements MouseListener {
+		@Override
+		public void mouseClicked(MouseEvent e) {
+		}
+
+		@Override
+		public void mousePressed(MouseEvent e) {
+			if(!gameOver){
+				int mouseButton = e.getButton();
+				if(mouseButton == MouseEvent.BUTTON1){
+					player.startAttack(time);
+					//m1Held = true;
+					//tryPlayerAttack(getMX(), getMY(), 1);
+				}
+				if(mouseButton == MouseEvent.BUTTON3){
+					player.cancelAttack(time);
+					//m2Held = true;
+	//				tryPlayerAttack(getMX(), getMY(), 2);
+				/*
+					instead change button two to adding a block??
+				*/
+				}
+				quests.checkMouseActionQuests(player, mouseButton, true);
+			}
+		}
+
+		@Override
+		public void mouseReleased(MouseEvent e) {
+			if(!gameOver){
+				int mouseButton = e.getButton();
+				//int x = e.getX();
+				//int y = e.getY();
+				//WRITE("The location is: " + locationX + " | " + locationY);
+				if(mouseButton == MouseEvent.BUTTON1){
+					player.releaseAttack(playerProjectiles, screenWidth, screenHeight, getMX(), getMY(), time);
+					//m1Held = false;
+				}
+				if(mouseButton == MouseEvent.BUTTON3){
+
+				}
+				quests.checkMouseActionQuests(player, mouseButton, false);
+			}
+		}
+
+		@Override
+		public void mouseEntered(MouseEvent e) {
+		}
+
+		@Override
+		public void mouseExited(MouseEvent e) {
+		}
+	}
+
+//	void tryRepeatingMouse(){
+//		if(m1Held){
+//			//tryPlayerAttack(getMX(), getMY(), 1);
+//		}
+//		if(m2Held){
+////			tryPlayerAttack(getMX(), getMY(), 2);
+//			/*
+//				same as above, change to adding block or something
+//			*/
+//		}
+//	}
+
+//	void tryPlayerAttack(int mx, int my, int move){
+//		if(player.canAttack(time, move)){
+////			double angle = Math.toDegrees(Tools.EMath.getAngleRad((int) (screenWidth/2), (int) (screenHeight/2), mx, my));
+////			//WRITE("" + angle);
+////			if(angle < 0){
+////				angle += 360;
+////			}
+////			//WRITE("The angle is: " + angle);
+////			double xExtra = 0, yExtra = 0;
+////
+////
+////			/*
+////				The x and y offset needs to be adjusted here hardcoded depending on how big the projectile is
+////				(to center projectile around character)
+////
+////				the xextra and yextra is how far the projectile should be from the center
+////			*/
+////			xExtra = 0 * Math.cos(angle);
+////			yExtra = 0 * Math.sin(angle);
+////
+////			if(move == 1){
+////				//for the primary attack
+////				double dx = 2 * Math.cos(Math.toRadians(angle)) / 8;
+////				double dy = -2 * Math.sin(Math.toRadians(angle)) / 8;
+////				Projectile newProjectile = new Projectile(player.getX() + xExtra + .5, player.getY() + yExtra + .5,
+////															.5, .5, angle,
+////															time, dx, dy,
+////															TEAM_PLAYER, player.getAttackBonus(),
+////															GType.STANDARD_PROJECTILE_DESPAWN_TIME, 300);
+////				//newProjectile.setBufferedImage(arrowImages, this, scale);
+////				playerProjectiles.add(newProjectile);
+////			}
+//		}
+//	}
+
+	double getDirection(int m1x, int m1y, int m2x, int m2y){
+		double degrees =  Math.toDegrees(Math.atan2(m1y - m2y, m2x - m1x ));
+		return degrees;
+	}
+
+	int getMX(){
+		try{
+			return (int) (MouseInfo.getPointerInfo().getLocation().getX() - this.getLocationOnScreen().getX());
+		}catch(IllegalComponentStateException ex){
+			return 0;
+		}
+	}
+
+	int getMY(){
+		try{
+			return (int) (MouseInfo.getPointerInfo().getLocation().getY() - this.getLocationOnScreen().getY());
+		}catch(IllegalComponentStateException ex){
+			return 0;
+		}
+	}
+	//</editor-fold>
+
+	/*
+	For crafting
+		code for repair/upgrade/placing blocks
+			-1 for repair/upgrade tool
+			0-n for placing blocks
+	*/
+	//<editor-fold defaultstate="collapsed">
+//	int tool = -1;
+//	BuiltBlock[] blocks;
+//	int inventorySize = 20;
+//	private void setupCrafting(){
+//		blocks = new BuiltBlock[inventorySize];
+//	}
+	//</editor-fold>
+}

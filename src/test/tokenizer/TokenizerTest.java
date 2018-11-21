@@ -6,6 +6,7 @@ import main.tokenizer.tokens.TokenType;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.File;
 import java.util.List;
 
 import static main.tokenizer.tokens.TokenType.*;
@@ -14,7 +15,22 @@ public class TokenizerTest {
 
 	Tokenizer tokenizer = new Tokenizer();
 
-	String variableTokens = "	int testVariable = 5;";
+	String variableTokens = "	\n" +
+			"int testVariable = 5;";
+
+	String multiLineCommentString = "/* test */";
+	String multiLineCommentString2 = 	"/*\n" +
+										" * To change this license header, choose License Headers in Project Properties.\n" +
+										" * To change this template file, choose Tools | Templates\n" +
+										" * and open the template in the editor.\n" +
+										" */";
+	String multiLineCommentString3 =
+			"/* test */\n\n\n" +
+			"/*\n" +
+			" * To change this license header, choose License Headers in Project Properties.\n" +
+			" * To change this template file, choose Tools | Templates\n" +
+			" * and open the template in the editor.\n" +
+			" */";
 
 	@Test
 	public void testVariableToken(){
@@ -22,9 +38,39 @@ public class TokenizerTest {
 				TYPE, OBJECT_OR_VARIABLE_NAME, EQUALS, LITERAL_VALUE, SEMI_COLON
 		};
 
-		List<Token> tokens = tokenizer.tryTokenizerForCurrentString(variableTokens);
+		checkAssertions("Variable tokens 1", expectedTokenTypes, tokenizer.tryTokenizerForCurrentString(variableTokens));
+	}
 
-		checkAssertions("Variable tokens 1", expectedTokenTypes, tokens);
+	@Test
+	public void testMultiLineComment(){
+		TokenType[] expectedTokenTypes = new TokenType[]{
+				MULTI_LINE_COMMENT
+		};
+
+		checkAssertions("Multi-line token test 1", expectedTokenTypes, tokenizer.tryTokenizerForCurrentString(multiLineCommentString));
+	}
+
+	@Test
+	public void testMultiLineComment2(){
+		TokenType[] expectedTokenTypes = new TokenType[]{
+				MULTI_LINE_COMMENT
+		};
+
+		checkAssertions("Multi-line token test 2", expectedTokenTypes, tokenizer.tryTokenizerForCurrentString(multiLineCommentString2));
+	}
+
+	@Test
+	public void testMultiLineComment3(){
+		TokenType[] expectedTokenTypes = new TokenType[]{
+				MULTI_LINE_COMMENT, MULTI_LINE_COMMENT
+		};
+
+		checkAssertions("Multi-line token test 3", expectedTokenTypes, tokenizer.tryTokenizerForCurrentString(multiLineCommentString3));
+	}
+
+	@Test
+	public void testParsingLargeFile(){
+//		System.out.println(tokenizer.tokenizeFile(new File("src/test/resources/TestParseFile")));
 	}
 
 	private void checkAssertions(String testName, TokenType[] expectedTypes, List<Token> tokens){
