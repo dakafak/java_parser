@@ -15,15 +15,36 @@ public enum TokenType {//TODO change this to enum and have tokens in here instea
 	 */
 	EQUALS("="),
 	SEMI_COLON(";"),
+	COMMA(","),
+	OPENING_CURLY_BRACE("\\{"),
+	CLOSING_CURLY_BRACE("\\}"),
+	OPENING_SQUARE_BRACE("\\["),
+	CLOSING_SQUARE_BRACE("\\]"),
+	OPENING_ANGLE_BRACE("<"),
+	CLOSING_ANGLE_BRACE(">"),
+	OPENING_PARENTHESIS("\\("),
+	CLOSING_PARENTHESIS("\\)"),
+	PERIOD("\\."),
+	EXCLAMATION_POINT("\\!"),
+	OR("\\|"),
+	AND("\\&"),
+	AT("@"),
+	PERCENT("%"),
+
+	PLUS("\\+"),
+	MINUS("\\-"),
+	STAR("\\*"),
+	FORWARD_SLASH("\\/"),
 
 	/**
 	 * COMMENTS
 	 */
-	SINGLE_LINE_COMMENT("\\/\\/.*?\\\\n"),
-	MULTI_LINE_COMMENT("/\\*(.|[\\r\\n])*?\\*/")
+	SINGLE_LINE_COMMENT("\\/\\/.*?[\\r\\n]"),
+	MULTI_LINE_COMMENT("/\\*(.|[\\r\\n])*?\\*/"),
 	/**
 	 * ADDITIONAL CLASS GARBAGE
 	 */
+	CLASS_IMPORT("import(\\s)+.*?;")
 	;
 
 	public Pattern getRegex() {

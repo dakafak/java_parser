@@ -32,6 +32,8 @@ public class TokenizerTest {
 			" * and open the template in the editor.\n" +
 			" */";
 
+	String singleImportLine = "import static Tools.GType.CHUNK_SIZE;";
+
 	@Test
 	public void testVariableToken(){
 		TokenType[] expectedTokenTypes = new TokenType[]{
@@ -69,8 +71,17 @@ public class TokenizerTest {
 	}
 
 	@Test
+	public void testImportType(){
+		TokenType[] expectedTokenTypes = new TokenType[]{
+				CLASS_IMPORT
+		};
+
+		checkAssertions("Class import test", expectedTokenTypes, tokenizer.tryTokenizerForCurrentString(singleImportLine));
+	}
+
+	@Test
 	public void testParsingLargeFile(){
-//		System.out.println(tokenizer.tokenizeFile(new File("src/test/resources/TestParseFile")));
+		System.out.println(tokenizer.tokenizeFile(new File("src/test/resources/TestParseFile")));
 	}
 
 	private void checkAssertions(String testName, TokenType[] expectedTypes, List<Token> tokens){
