@@ -103,17 +103,14 @@ public class Tokenizer {
 
 	private String tryMatchingTokenWithString(TokenType tokenType, String currentString, List<Token> allTokenTypes){
 		// Replace leading whitespace
-//		currentString = currentString.replaceFirst(leadingWhitespaceOrNewLineRegex.pattern(), "");
 		if(!foundATokenMatch) {
 			currentString = currentString.trim();
-//		System.out.println("trying to match: \"" + currentString + "\"");
 
 			// Create Matcher
 			Matcher tokenMatcher = tokenType.getRegex().matcher(currentString);
 			if (tokenMatcher.lookingAt()) {
 				foundATokenMatch = true;
 				String matchedPiece = tokenMatcher.group(0);
-//				System.out.println("found a match: \"" + matchedPiece + "\" with type " + tokenType);
 				allTokenTypes.add(new Token(tokenType, matchedPiece));
 				return tokenMatcher.replaceFirst("");
 			}
