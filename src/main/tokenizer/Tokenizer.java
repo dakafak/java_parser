@@ -108,6 +108,7 @@ public class Tokenizer {
 
 			// Create Matcher
 			Matcher tokenMatcher = tokenType.getRegex().matcher(currentString);
+			tokenMatcher.
 			if (tokenMatcher.lookingAt()) {
 				foundATokenMatch = true;
 				String matchedPiece = tokenMatcher.group(0);

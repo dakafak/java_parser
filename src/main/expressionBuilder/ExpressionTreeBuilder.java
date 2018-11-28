@@ -4,6 +4,7 @@ import main.expressionBuilder.expressions.Expression;
 import main.expressionBuilder.expressions.ExpressionType;
 import main.tokenizer.tokens.Token;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -12,10 +13,16 @@ import static main.expressionBuilder.expressions.ExpressionType.CLASS;
 
 public class ExpressionTreeBuilder {
 
-    public Expression buildExpressionTreeFromTokenList(List<Token> tokens) {
-        Expression expressionTree = recurrsivelyBuildExpressionTree(getTokenStringFromListOfTokens(tokens));
+	List<ExpressionType> expressionTypesToCheck;
 
-        return expressionTree;
+    public Expression buildExpressionTreeFromTokenList(List<Token> tokens) {
+    	expressionTypesToCheck = new ArrayList<>();
+    	expressionTypesToCheck.add(CLASS);
+
+    	Expression rootProjectExpression = new Expression("Root");
+        recurrsivelyBuildExpressionTree(rootProjectExpression, getTokenStringFromListOfTokens(tokens));
+
+        return rootProjectExpression;
     }
 
     private String getTokenStringFromListOfTokens(List<Token> tokens){
@@ -32,9 +39,35 @@ public class ExpressionTreeBuilder {
     //TODO Maybe make a string with letters repressenting all tokens in the list.
     //TODO  could use regexes to build trees of expressions
     //TODO  can translate back to building an expression tree with the index identification of each token
-    private Expression recurrsivelyBuildExpressionTree(String remainingTokenString) {//TODO change list type so it can support faster removal of nodes
-        Expression expressionToReturn
-        tryMatchingTokenWithString(CLASS, remainingTokenString);
+    private void recurrsivelyBuildExpressionTree(Expression parentExpression, String remainingTokenString) {//TODO change list type so it can support faster removal of nodes
+		List<Expression> expressions = new ArrayList<>();
+		boolean foundChildNodes = false;
+
+		// Find expression types for parent expressionn
+		for(ExpressionType expressionType : expressionTypesToCheck){
+			Matcher tokenMatcher = expressionType.getRegex().matcher(remainingTokenString);
+			if (tokenMatcher.lookingAt()) {
+				foundChildNodes = true;
+
+				String matchedPiece = tokenMatcher.group(0);//TODO should look for middle of expression data and see if that/those strings are empty
+				Expression matchedExpression = new Expression(matchedPiece);
+				expressions.add(matchedExpression);
+
+				String remainingTokenStringInsideFoundExpression = tokenMatcher.group(1);
+
+				if(foundChildNodes && !remainingTokenStringInsideFoundExpression.isEmpty()){
+					for(Expression childExpression : expressions){
+						recurrsivelyBuildExpressionTree(childExpression, remainingTokenStringInsideFoundExpression);
+					}
+				}
+
+				remainingTokenString = tokenMatcher.replaceFirst("");
+			}
+		}
+
+
+
+		parentExpression.setChildExpressions(expressions);
     }
 
     private String tryMatchingTokenWithString(ExpressionType expressionType, String currentString){
@@ -45,6 +78,7 @@ public class ExpressionTreeBuilder {
 //            allTokenTypes.add(new Expression(expressionType, matchedPiece));
             return tokenMatcher.replaceFirst("");
         }
+        return "";
     }
 
 }
